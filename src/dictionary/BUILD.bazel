@@ -370,6 +370,24 @@ mozc_cc_test(
     ],
 )
 
+# [my-patches] The user dictionary of the inline word registration.
+mozc_cc_library(
+    name = "inline_registration",
+    srcs = ["inline_registration.cc"],
+    hdrs = ["inline_registration.h"],
+    visibility = [
+        "//:__subpackages__",
+    ],
+    deps = [
+        ":user_dictionary_storage",
+        ":user_dictionary_util",
+        "//protocol:user_dictionary_storage_cc_proto",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/status:statusor",
+    ],
+)
+
 mozc_cc_library(
     name = "user_dictionary_util",
     srcs = ["user_dictionary_util.cc"],

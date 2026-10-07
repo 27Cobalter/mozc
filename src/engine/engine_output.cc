@@ -41,6 +41,7 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
+#include "absl/strings/match.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
@@ -53,6 +54,7 @@
 #include "converter/attribute.h"
 #include "converter/candidate.h"
 #include "converter/segments.h"
+#include "dictionary/inline_registration.h"
 #include "engine/candidate_list.h"
 #include "protocol/candidate_window.pb.h"
 #include "protocol/commands.pb.h"
@@ -80,9 +82,12 @@ bool FillAnnotation(const converter::Candidate& candidate_value,
     annotation->set_a11y_description(candidate_value.a11y_description);
     is_modified = true;
   }
-  if (candidate_value.attributes &
-          converter::Attribute::USER_HISTORY_PREDICTION &&
-      !(candidate_value.attributes & converter::Attribute::NO_DELETABLE)) {
+  if ((candidate_value.attributes &
+           converter::Attribute::USER_HISTORY_PREDICTION &&
+       !(candidate_value.attributes & converter::Attribute::NO_DELETABLE)) ||
+      // [my-patches] Words registered inline are deleted from the dictionary.
+      absl::EndsWith(candidate_value.description,
+                     dictionary::kInlineRegistrationDescription)) {
     annotation->set_deletable(true);
     is_modified = true;
   }
@@ -398,7 +403,11 @@ bool FillFooter(const commands::Category category,
               return "Ctrl+Delで履歴から削除";
             }
           }();
-          footer->set_label(kDeleteInstruction);
+          footer->set_label(
+              absl::EndsWith(cand.annotation().description(),
+                             dictionary::kInlineRegistrationDescription)
+                  ? "Ctrl+Delでインライン登録から削除"
+                  : kDeleteInstruction);
           show_build_number = false;
         }
         break;

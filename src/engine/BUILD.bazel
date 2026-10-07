@@ -522,6 +522,7 @@ mozc_cc_library(
         "//composer",
         "//converter:attribute",
         "//converter:segments",
+        "//dictionary:inline_registration",
         "//protocol:candidate_window_cc_proto",
         "//protocol:commands_cc_proto",
         "@com_google_absl//absl/container:flat_hash_map",

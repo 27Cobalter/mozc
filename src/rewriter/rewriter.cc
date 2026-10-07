@@ -117,6 +117,7 @@
 #endif  // MOZC_USAGE_REWRITER
 
 #ifdef MOZC_USER_DICTIONARY_REWRITER
+#include "rewriter/inline_registration_rewriter.h"
 #include "rewriter/user_dictionary_rewriter.h"
 #endif  // MOZC_USER_DICTIONARY_REWRITER
 
@@ -187,6 +188,10 @@ Rewriter::Rewriter(const engine::Modules& modules) {
   AddRewriter(make_unique_from_tuples<UsageRewriter>(
       data_manager.GetUsageRewriterData(), dictionary, pos_matcher));
 #endif  // MOZC_USAGE_REWRITER
+
+#ifdef MOZC_USER_DICTIONARY_REWRITER
+  AddRewriter(std::make_unique<InlineRegistrationRewriter>());
+#endif  // MOZC_USER_DICTIONARY_REWRITER
 
   AddRewriter(std::make_unique<VersionRewriter>(data_manager.GetDataVersion()));
   AddRewriter(make_unique_from_tuples<CorrectionRewriter>(

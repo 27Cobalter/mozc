@@ -854,6 +854,37 @@ mozc_cc_test(
     ],
 )
 
+# [my-patches] See rewriter/inline_registration_rewriter.h.
+mozc_cc_library(
+    name = "inline_registration_rewriter",
+    srcs = ["inline_registration_rewriter.cc"],
+    hdrs = ["inline_registration_rewriter.h"],
+    deps = [
+        ":rewriter_interface",
+        "//converter:attribute",
+        "//converter:segments",
+        "//dictionary:inline_registration",
+        "//request:conversion_request",
+        "@com_google_absl//absl/strings",
+    ],
+    alwayslink = 1,
+)
+
+mozc_cc_test(
+    name = "inline_registration_rewriter_test",
+    size = "small",
+    srcs = ["inline_registration_rewriter_test.cc"],
+    deps = [
+        ":inline_registration_rewriter",
+        "//converter:attribute",
+        "//converter:segments",
+        "//dictionary:inline_registration",
+        "//request:conversion_request",
+        "//testing:gunit_main",
+        "//testing:mozctest",
+    ],
+)
+
 mozc_cc_library(
     name = "user_dictionary_rewriter",
     srcs = ["user_dictionary_rewriter.cc"],
@@ -1535,6 +1566,7 @@ mozc_cc_library(
         ":environmental_filter_rewriter",
         ":focus_candidate_rewriter",
         ":fortune_rewriter",
+        ":inline_registration_rewriter",
         ":ivs_variants_rewriter",
         ":language_aware_rewriter",
         ":merger_rewriter",
