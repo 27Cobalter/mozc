@@ -4120,6 +4120,24 @@ TEST_F(InlineWordRegistrationTest, FocusedSegment) {
   EXPECT_EQ(word->second, "あ");
 }
 
+TEST_F(InlineWordRegistrationTest, ConfigChangedWhileRegisteringIsKept) {
+  MockEngine engine;
+  std::shared_ptr<MockConverter> converter = CreateEngineConverterMock(&engine);
+  Session session(engine);
+  InitSessionToPrecomposition(&session);
+  commands::Command command;
+  StartRegistration(&session, &command, converter.get());
+
+  // The config of the conversion that is waiting behind the registration is
+  // updated too.
+  config::Config config;
+  config.set_inline_register_focused_segment(true);
+  session.SetConfig(config);
+  SendSpecialKey(commands::KeyEvent::ESCAPE, &session, &command);
+  EXPECT_FALSE(IsRegistering(command));
+  EXPECT_TRUE(session.context().GetConfig().inline_register_focused_segment());
+}
+
 TEST_F(InlineWordRegistrationTest, CancelReturnsToConversion) {
   MockEngine engine;
   std::shared_ptr<MockConverter> converter = CreateEngineConverterMock(&engine);

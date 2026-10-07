@@ -389,6 +389,7 @@ class Session {
 
   bool SendCommandInternal(mozc::commands::Command* command);
   bool SendKeyInternal(mozc::commands::Command* command);
+  bool SendKeyToState(mozc::commands::Command* command);
   bool TestSendKeyInternal(mozc::commands::Command* command);
   bool SendKeyInWordRegistration(mozc::commands::Command* command);
   // Handles the key as an edit of the committed text if the nested input is

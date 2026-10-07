@@ -67,6 +67,11 @@
   コピーや `SetStateToPredompositionAndCancel` を変えたら、ここを合わせる。
 - ネスト側の確定 (result) は `registration_value_` / `registration_after_` に**横取り**し、
   ホストへは返さない。完了時にだけ result を返す。
+- `Session::SetConfig` / `SetRequest` / `SetTable` / `SetKeyMapManager` は、登録中は
+  退避している `registration_context_` にも反映する (取り消したときに古い設定に戻らないように)。
+  upstream が `Session` に同種の setter を足したら、同じ扱いにする。
+- 登録中のキー処理は、入力の前処理 (`TransformInput` など) を 1 回だけ行い、
+  `SendKeyToState` で状態ごとの処理に渡す (`SendKeyInternal` を呼ぶと二重に適用される)。
 - `Session::TestSendKey` は `SendKey` と同じキーを「処理した (consumed)」と返すこと。
   登録モードでは `TestSendKeyInternal` の結果に上書きする (素通しだとアプリに漏れる)。
 - 変換中の preedit は `EngineConverter::FillOutput` から取る (`FillPreedit` は変換前の

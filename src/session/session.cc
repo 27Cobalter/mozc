@@ -628,6 +628,12 @@ bool Session::SendKeyInternal(commands::Command* command) {
   UpdateTime();
   UpdatePreferences(command);
   TransformInput(command->mutable_input());
+  return SendKeyToState(command);
+}
+
+// SendKeyInternal() without the preparation of the input, which is done
+// already.
+bool Session::SendKeyToState(commands::Command* command) {
   // To support indirect IME on/off by using KeyEvent::activated, use effective
   // state instead of directly using context_->state().
   HandleIndirectImeOnOff(command);
@@ -1294,24 +1300,36 @@ void Session::SetTable(std::shared_ptr<const composer::Table> table) {
     return;
   }
   ClearUndoContext();
+  if (registration_context_ != nullptr) {
+    registration_context_->mutable_composer()->SetTable(table);
+  }
   context_->mutable_composer()->SetTable(std::move(table));
 }
 
 void Session::SetConfig(std::shared_ptr<const config::Config> config) {
   DCHECK(config);
   ClearUndoContext();
+  if (registration_context_ != nullptr) {
+    registration_context_->SetConfig(config);
+  }
   context_->SetConfig(std::move(config));
 }
 
 void Session::SetRequest(std::shared_ptr<const commands::Request> request) {
   DCHECK(request);
   ClearUndoContext();
+  if (registration_context_ != nullptr) {
+    registration_context_->SetRequest(request);
+  }
   context_->SetRequest(std::move(request));
 }
 
 void Session::SetKeyMapManager(
     std::shared_ptr<const mozc::keymap::KeyMapManager> key_map_manager) {
   DCHECK(key_map_manager);
+  if (registration_context_ != nullptr) {
+    registration_context_->SetKeyMapManager(key_map_manager);
+  }
   context_->SetKeyMapManager(key_map_manager);
 }
 
@@ -2910,7 +2928,7 @@ bool Session::SendKeyInWordRegistration(commands::Command* command) {
       EditWordRegistrationText(command)) {
     return true;
   }
-  const bool result = SendKeyInternal(command);
+  const bool result = SendKeyToState(command);
   if (!command->output().consumed() && IsCtrlAltKey(key)) {
     // Nothing is assigned to the key. Do not pass it to the application.
     command->mutable_output()->clear_key();
