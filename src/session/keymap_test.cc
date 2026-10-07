@@ -986,6 +986,21 @@ TEST_F(KeyMapTest, ShiftTabToConvertPrev) {
   }
 }
 
+// [my-patches] Ctrl+Delete deletes the selected candidate (the words registered
+// inline) in the conversion state too, not only in the prediction.
+TEST_F(KeyMapTest, DeleteSelectedCandidateInConversion) {
+  for (const auto keymap :
+       {config::Config::ATOK, config::Config::MSIME, config::Config::KOTOERI,
+        config::Config::CHROMEOS}) {
+    KeyMapManager manager(GetDefaultConfig(keymap));
+    commands::KeyEvent key_event;
+    ConversionState::Commands command;
+    KeyParser::ParseKey("Ctrl Delete", &key_event);
+    EXPECT_TRUE(manager.GetCommandConversion(key_event, &command)) << keymap;
+    EXPECT_EQ(command, ConversionState::DELETE_SELECTED_CANDIDATE) << keymap;
+  }
+}
+
 TEST_F(KeyMapTest, LaunchToolTest) {
   commands::KeyEvent key_event;
   PrecompositionState::Commands conv_command;

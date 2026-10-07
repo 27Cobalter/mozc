@@ -47,6 +47,7 @@ Composition	VirtualEnter	Commit
 Conversion	Backspace	Cancel
 Conversion	Ctrl [	Cancel
 Conversion	Ctrl @	ConvertToHalfAlphanumeric
+Conversion	Ctrl Delete	DeleteSelectedCandidate
 Conversion	Ctrl h	Cancel
 Conversion	Ctrl i	ConvertToFullKatakana
 Conversion	Ctrl k	SegmentWidthShrink

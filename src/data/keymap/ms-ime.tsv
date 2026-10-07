@@ -65,6 +65,7 @@ Conversion	Backspace	Cancel
 Conversion	Ctrl a	SegmentFocusFirst
 Conversion	Ctrl Backspace	Cancel
 Conversion	Ctrl d	SegmentFocusRight
+Conversion	Ctrl Delete	DeleteSelectedCandidate
 Conversion	Ctrl Down	CommitOnlyFirstSegment
 Conversion	Ctrl e	ConvertPrev
 Conversion	Ctrl Enter	Commit

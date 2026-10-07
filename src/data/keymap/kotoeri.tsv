@@ -60,6 +60,7 @@ Conversion	Ctrl '	DisplayAsHalfAlphanumeric
 Conversion	Ctrl a	SegmentFocusFirst
 Conversion	Ctrl b	SegmentFocusLeft
 Conversion	Ctrl d	SegmentFocusRight
+Conversion	Ctrl Delete	DeleteSelectedCandidate
 Conversion	Ctrl e	ConvertPrev
 Conversion	Ctrl f	SegmentFocusRight
 Conversion	Ctrl h	Cancel
