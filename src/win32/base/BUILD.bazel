@@ -245,6 +245,7 @@ mozc_cc_library(
         ":conversion_mode_util",
         ":input_state",
         ":keyboard",
+        "//base:const",
         "//base:japanese_util",
         "//base:util",
         "//base/win32:wide_char",

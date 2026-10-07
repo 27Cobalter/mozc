@@ -1409,6 +1409,16 @@ message Output {
   }
   optional ToolMode launch_tool_mode = 17 [default = NO_TOOL];
 
+  // [my-patches] Initial values of the word register dialog. Used together
+  // with launch_tool_mode = WORD_REGISTER_DIALOG. The client passes them to
+  // the dialog by the environment variables in base/const.h.
+  message WordRegisterDefault {
+    optional string reading = 1;
+    optional string word = 2;
+    optional string dictionary = 3;
+  }
+  optional WordRegisterDefault word_register_default = 9000;
+
   // Callback request to the client.
   message Callback {
     // Callback command to be sent from the client to the server.  The

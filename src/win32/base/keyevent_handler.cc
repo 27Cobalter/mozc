@@ -37,6 +37,7 @@
 #include <string>
 
 #include "absl/log/check.h"
+#include "base/const.h"
 #include "base/japanese_util.h"
 #include "base/util.h"
 #include "base/win32/wide_char.h"
@@ -53,6 +54,15 @@ using commands::KeyEvent;
 using commands::Output;
 
 namespace {
+
+// Sets (or removes if |value| is empty) an environment variable of this
+// process with the Unicode API.
+void SetEnvironmentUtf8(const char* name, const std::string& value) {
+  const std::wstring wname = Utf8ToWide(name);
+  const std::wstring wvalue = Utf8ToWide(value);
+  ::SetEnvironmentVariableW(wname.c_str(),
+                            wvalue.empty() ? nullptr : wvalue.c_str());
+}
 
 // The Mozc protocol has expected the client to send a key event with
 // |KeyEvent::HANKAKU| special key as if there was single Hankaku/Zenkaku
@@ -1025,8 +1035,25 @@ void KeyEventHandler::MaybeSpawnTool(mozc::client::ClientInterface* client,
     }
     output->clear_launch_tool_mode();
     if (!mode.empty()) {
+      // [my-patches] The word register dialog reads its initial values from
+      // the environment variables, which the child process inherits.
+      const bool has_default = mode == "word_register_dialog" &&
+                               output->has_word_register_default();
+      if (has_default) {
+        const Output::WordRegisterDefault& d = output->word_register_default();
+        SetEnvironmentUtf8(kWordRegisterEnvironmentReadingName, d.reading());
+        SetEnvironmentUtf8(kWordRegisterEnvironmentName, d.word());
+        SetEnvironmentUtf8(kWordRegisterEnvironmentDictionaryName,
+                           d.dictionary());
+      }
       client->LaunchTool(mode, "");
+      if (has_default) {
+        SetEnvironmentUtf8(kWordRegisterEnvironmentReadingName, "");
+        SetEnvironmentUtf8(kWordRegisterEnvironmentName, "");
+        SetEnvironmentUtf8(kWordRegisterEnvironmentDictionaryName, "");
+      }
     }
+    output->clear_word_register_default();
   }
 }
 

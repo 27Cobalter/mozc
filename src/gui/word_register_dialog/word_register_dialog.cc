@@ -120,10 +120,19 @@ WordRegisterDialog::WordRegisterDialog()
   WordlineEdit->setMaxLength(kMaxEditLength);
 
   if (!SetDefaultEntryFromEnvironmentVariable()) {
+    // [my-patches] Opened from the inline word registration: the reading is
+    // given even if the word is empty. Do not fill the word from the clipboard.
+    const QString reading =
+        TrimValue(GetEnv(mozc::kWordRegisterEnvironmentReadingName));
+    if (!reading.isEmpty()) {
+      ReadinglineEdit->setText(reading);
+      WordlineEdit->setFocus(Qt::OtherFocusReason);
+    } else {
 #ifdef _WIN32
-    // On Windows, try to use clipboard as a fallback.
-    SetDefaultEntryFromClipboard();
+      // On Windows, try to use clipboard as a fallback.
+      SetDefaultEntryFromClipboard();
 #endif  // _WIN32
+    }
   }
 
   client_->set_timeout(kSessionTimeout);
@@ -169,6 +178,23 @@ WordRegisterDialog::WordRegisterDialog()
     CHECK_GT(storage_->dictionaries_size(), 0);
     for (const auto& dictionary : storage_->GetProto().dictionaries()) {
       DictionarycomboBox->addItem(QString::fromUtf8(dictionary.name().c_str()));
+    }
+  }
+
+  // [my-patches] Select the dictionary the caller asked for. It is created
+  // (and saved when the entry is registered) if it does not exist yet.
+  {
+    const QString name =
+        TrimValue(GetEnv(mozc::kWordRegisterEnvironmentDictionaryName));
+    if (!name.isEmpty()) {
+      int index = DictionarycomboBox->findText(name);
+      if (index < 0 && storage_->CreateDictionary(name.toStdString()).ok()) {
+        DictionarycomboBox->addItem(name);
+        index = DictionarycomboBox->count() - 1;
+      }
+      if (index >= 0) {
+        DictionarycomboBox->setCurrentIndex(index);
+      }
     }
   }
 

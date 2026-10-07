@@ -148,6 +148,9 @@ inline constexpr char kWordRegisterEnvironmentName[] =
     "default_entry_of_word_register";
 inline constexpr char kWordRegisterEnvironmentReadingName[] =
     "default_reading_entry_of_word_register";
+// [my-patches] Name of the user dictionary selected in the word register dialog.
+inline constexpr char kWordRegisterEnvironmentDictionaryName[] =
+    "default_dictionary_of_word_register";
 }  // namespace mozc
 
 #endif  // MOZC_BASE_CONST_H_
