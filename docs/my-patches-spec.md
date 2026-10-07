@@ -65,7 +65,7 @@
   `registration_context_` に退避し、`context_` はそのコピーを PRECOMPOSITION にしたもの。
   通常の入力処理 (`SendKeyInternal`) をそのまま使うための構造。upstream が ImeContext の
   コピーや `SetStateToPredompositionAndCancel` を変えたら、ここを合わせる。
-- ネスト側の確定 (result) は `registration_value_` / `registration_after_` に**横取り**し、
+- ネスト側の確定 (result) は `registration_value_` (カーソル位置は `registration_cursor_`) に**横取り**し、
   ホストへは返さない。完了時にだけ result を返す。
 - `Session::SetConfig` / `SetRequest` / `SetTable` / `SetKeyMapManager` は、登録中は
   退避している `registration_context_` にも反映する (取り消したときに古い設定に戻らないように)。
@@ -100,8 +100,8 @@
   **点線** (`UNDERLINE`)、変換中の選択文節は**ハイライト** (`HIGHLIGHT`)。
   Windows の TSF では、`UNDERLINE` が点線、`HIGHLIGHT` が太い実線、`NONE` は装飾なし。
   `[登録:よみ] ` も `NONE`。
-- **カーソルを持つ**。確定済みの文字は「カーソルの前」と「カーソルの後」に分かれ、
-  入力中の文字はその間に入る (preedit の cursor もその位置)。
+- **カーソルを持つ**。確定済みの文字は 1 本の文字列とカーソル位置 (文字数) で持ち、
+  入力中の文字はカーソルの位置に入る (preedit の cursor もその位置)。
 - 入力が空のとき、次のキーで確定済みの文字を編集する (装飾キーなしのとき):
   `←` `→` (1 文字移動)、`Home` `End`、`BS` (カーソルの前の 1 文字を消す)、`Del` (後の 1 文字)。
   - 例: 「歩く」を Enter で確定 → `BS` で「く」が**1 回で**消える (2 回押す必要はない)。
@@ -181,7 +181,7 @@
 | 何 | どこ |
 |:--|:--|
 | 目印と削除 | `rewriter/inline_registration_rewriter.{h,cc}` (`Rewrite`: 説明を足す / `ClearHistoryEntry`: 辞書から削除 / `Reload`: 語の集合を読み直す)、`rewriter/rewriter.cc` で `UsageRewriter` の後・`VersionRewriter` の前に登録 |
-| 辞書の読み書き | `dictionary/inline_registration.{h,cc}` (`LoadInlineRegisteredWords` / `RemoveInlineRegisteredWord`) と定数 `kInlineRegistrationDictionaryName` / `kInlineRegistrationDescription` |
+| 辞書の読み書き | `dictionary/inline_registration.{h,cc}` (`LoadInlineRegisteredWords` / `RemoveInlineRegisteredWord`) と定数 `kInlineRegistrationName` (辞書名と候補の説明の両方に使う) |
 | 削除可能の印 (UI) | `engine/engine_output.cc` の `FillAnnotation` (`deletable`) とフッターの文言 |
 | 再読み込み | `Session::DeleteCandidateFromHistory` が `user_dictionary_changed_` を立て、`session_handler.cc` の `ApplyRegisteredWord` が処理 |
 
@@ -194,7 +194,7 @@
   `DeleteSelectedCandidateInConversion`)。カスタムのキー設定を使っている場合は自分で足す。
 - `converter::Attribute` の 32 ビットは**すべて使われている**ため、印は属性ではなく
   **`description` の末尾の文字列**で判定している。upstream が説明欄の組み立てを変えたら、
-  この判定 (`absl::EndsWith(description, kInlineRegistrationDescription)`) が通るようにする。
+  この判定 (`absl::EndsWith(description, kInlineRegistrationName)`) が通るようにする。
   3 か所 (rewriter / `FillAnnotation` / フッター) で同じ判定を使う。
 - 削除は `Converter::DeleteCandidateFromHistory` → `MergerRewriter::ClearHistoryEntry` →
   `InlineRegistrationRewriter::ClearHistoryEntry` の経路。この経路が変わったら、

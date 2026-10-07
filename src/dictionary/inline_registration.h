@@ -41,11 +41,9 @@
 namespace mozc {
 namespace dictionary {
 
-// Name of the user dictionary that stores the words registered inline.
-inline constexpr char kInlineRegistrationDictionaryName[] = "インライン登録";
-
-// Description shown for the candidates that come from that dictionary.
-inline constexpr char kInlineRegistrationDescription[] = "インライン登録";
+// Name of the user dictionary that stores the words registered inline. It is
+// also the description shown for the candidates that come from it.
+inline constexpr char kInlineRegistrationName[] = "インライン登録";
 
 using InlineRegisteredWords =
     absl::flat_hash_set<std::pair<std::string, std::string>>;  // key, value

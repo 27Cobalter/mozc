@@ -15,14 +15,8 @@ def lum(r, g, b):
 
 
 def gray_image(im):
-    rgba = im.convert('RGBA')
-    px = rgba.load()
-    for y in range(rgba.height):
-        for x in range(rgba.width):
-            r, g, b, a = px[x, y]
-            v = lum(r, g, b)
-            px[x, y] = (v, v, v, a)
-    return rgba
+    # Luminance with the alpha kept (an already gray pixel does not change).
+    return im.convert('RGBA').convert('LA').convert('RGBA')
 
 
 def gray_png_bytes(data):

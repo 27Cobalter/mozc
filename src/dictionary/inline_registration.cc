@@ -62,9 +62,9 @@ user_dictionary::UserDictionary* LockInlineDictionary(
     return nullptr;
   }
   absl::StatusOr<uint64_t> id =
-      storage.GetUserDictionaryId(kInlineRegistrationDictionaryName);
+      storage.GetUserDictionaryId(kInlineRegistrationName);
   if (!id.ok() && create) {
-    id = storage.CreateDictionary(kInlineRegistrationDictionaryName);
+    id = storage.CreateDictionary(kInlineRegistrationName);
   }
   return id.ok() ? storage.GetUserDictionary(*id) : nullptr;
 }
@@ -134,7 +134,7 @@ InlineRegisteredWords LoadInlineRegisteredWords() {
     return words;
   }
   const absl::StatusOr<uint64_t> id =
-      storage.GetUserDictionaryId(kInlineRegistrationDictionaryName);
+      storage.GetUserDictionaryId(kInlineRegistrationName);
   if (!id.ok()) {
     return words;
   }

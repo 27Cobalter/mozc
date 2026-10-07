@@ -74,7 +74,7 @@ TEST_F(InlineRegistrationRewriterTest, MarksAndDeletesTheRegisteredWord) {
   EXPECT_TRUE(rewriter.Rewrite(request, &segments));
   const Segment& segment = segments.segment(0);
   EXPECT_EQ(segment.candidate(0).description,
-            dictionary::kInlineRegistrationDescription);
+            dictionary::kInlineRegistrationName);
   EXPECT_TRUE(segment.candidate(1).description.empty());
   EXPECT_TRUE(segment.candidate(2).description.empty());
 

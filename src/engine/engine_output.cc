@@ -87,7 +87,7 @@ bool FillAnnotation(const converter::Candidate& candidate_value,
        !(candidate_value.attributes & converter::Attribute::NO_DELETABLE)) ||
       // [my-patches] Words registered inline are deleted from the dictionary.
       absl::EndsWith(candidate_value.description,
-                     dictionary::kInlineRegistrationDescription)) {
+                     dictionary::kInlineRegistrationName)) {
     annotation->set_deletable(true);
     is_modified = true;
   }
@@ -405,7 +405,7 @@ bool FillFooter(const commands::Category category,
           }();
           footer->set_label(
               absl::EndsWith(cand.annotation().description(),
-                             dictionary::kInlineRegistrationDescription)
+                             dictionary::kInlineRegistrationName)
                   ? "Ctrl+Delでインライン登録から削除"
                   : kDeleteInstruction);
           show_build_number = false;

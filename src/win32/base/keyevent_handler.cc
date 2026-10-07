@@ -35,6 +35,7 @@
 
 #include <set>
 #include <string>
+#include <utility>
 
 #include "absl/log/check.h"
 #include "base/const.h"
@@ -1039,18 +1040,21 @@ void KeyEventHandler::MaybeSpawnTool(mozc::client::ClientInterface* client,
       // the environment variables, which the child process inherits.
       const bool has_default = mode == "word_register_dialog" &&
                                output->has_word_register_default();
+      const Output::WordRegisterDefault& d = output->word_register_default();
+      const std::pair<const char*, const std::string&> variables[] = {
+          {kWordRegisterEnvironmentReadingName, d.reading()},
+          {kWordRegisterEnvironmentName, d.word()},
+          {kWordRegisterEnvironmentDictionaryName, d.dictionary()}};
       if (has_default) {
-        const Output::WordRegisterDefault& d = output->word_register_default();
-        SetEnvironmentUtf8(kWordRegisterEnvironmentReadingName, d.reading());
-        SetEnvironmentUtf8(kWordRegisterEnvironmentName, d.word());
-        SetEnvironmentUtf8(kWordRegisterEnvironmentDictionaryName,
-                           d.dictionary());
+        for (const auto& [name, value] : variables) {
+          SetEnvironmentUtf8(name, value);
+        }
       }
       client->LaunchTool(mode, "");
       if (has_default) {
-        SetEnvironmentUtf8(kWordRegisterEnvironmentReadingName, "");
-        SetEnvironmentUtf8(kWordRegisterEnvironmentName, "");
-        SetEnvironmentUtf8(kWordRegisterEnvironmentDictionaryName, "");
+        for (const auto& variable : variables) {
+          SetEnvironmentUtf8(variable.first, "");
+        }
       }
     }
     output->clear_word_register_default();

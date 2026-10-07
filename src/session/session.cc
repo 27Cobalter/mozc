@@ -237,12 +237,11 @@ bool IsWordRegistrationTextKey(const commands::KeyEvent& key) {
   }
 }
 
-// Removes the last / first character.
-void PopBackChar(std::string* text) {
-  *text = std::string(Util::Utf8SubString(*text, 0, Util::CharsLen(*text) - 1));
-}
-void PopFrontChar(std::string* text) {
-  *text = std::string(Util::Utf8SubString(*text, 1));
+// Replaces |length| characters at |pos| of |text| with |replacement|.
+std::string SpliceChars(absl::string_view text, size_t pos, size_t length,
+                        absl::string_view replacement) {
+  return absl::StrCat(Util::Utf8SubString(text, 0, pos), replacement,
+                      Util::Utf8SubString(text, pos + length));
 }
 
 commands::CompositionMode ToCompositionMode(
@@ -505,16 +504,11 @@ bool Session::TestSendKey(commands::Command* command) {
   if (registration_context_ == nullptr) {
     return result;
   }
-  // The inline word registration keeps the keys it handles (the text editing
-  // keys, and Ctrl/Alt shortcuts that nothing is assigned to) from the
-  // application.
-  const commands::KeyEvent& key = command->input().key();
+  // The inline word registration keeps every key (except a modifier alone)
+  // from the application: the keys it handles (the text editing keys) and the
+  // ones that nothing is assigned to (e.g. Ctrl+N).
   if (command->output().consumed() ||
-      !(IsCtrlAltKey(key) || IsOpenWordRegisterDialogKey(key) ||
-        (context_->state() == ImeContext::PRECOMPOSITION &&
-         IsWordRegistrationTextKey(key)) ||
-        (context_->GetConfig().inline_register_cancel_at_once() &&
-         IsSpecialKey(key, commands::KeyEvent::ESCAPE)))) {
+      IsPureModifierKeyEvent(command->input().key())) {
     return result;
   }
   command->mutable_output()->clear_key();
@@ -2898,7 +2892,7 @@ bool Session::StartWordRegistration(commands::Command* command) {
   registration_head_ = head;
   registration_tail_ = tail;
   registration_value_.clear();
-  registration_after_.clear();
+  registration_cursor_ = 0;
   registration_context_ = std::move(context_);
   // The nested input starts from a clean composer and converter but keeps the
   // configuration, keymap and the input mode.
@@ -2929,7 +2923,7 @@ bool Session::SendKeyInWordRegistration(commands::Command* command) {
     return true;
   }
   const bool result = SendKeyToState(command);
-  if (!command->output().consumed() && IsCtrlAltKey(key)) {
+  if (!command->output().consumed() && !IsPureModifierKeyEvent(key)) {
     // Nothing is assigned to the key. Do not pass it to the application.
     command->mutable_output()->clear_key();
     command->mutable_output()->set_consumed(true);
@@ -2945,12 +2939,12 @@ bool Session::EditWordRegistrationText(commands::Command* command) {
   if (!IsWordRegistrationTextKey(key)) {
     return false;
   }
-  std::string& before = registration_value_;
-  std::string& after = registration_after_;
-  const bool empty = before.empty() && after.empty();
+  std::string& text = registration_value_;
+  size_t& cursor = registration_cursor_;
+  const size_t length = Util::CharsLen(text);
   switch (key.special_key()) {
     case commands::KeyEvent::ENTER:
-      if (empty) {
+      if (text.empty()) {
         return CancelWordRegistration(command);
       }
       command->mutable_output()->set_consumed(true);
@@ -2960,38 +2954,27 @@ bool Session::EditWordRegistrationText(commands::Command* command) {
     case commands::KeyEvent::ESCAPE:
       return CancelWordRegistration(command);
     case commands::KeyEvent::BACKSPACE:
-      if (empty) {
+      if (text.empty()) {
         return CancelWordRegistration(command);
       }
-      if (!before.empty()) {
-        PopBackChar(&before);
+      if (cursor > 0) {
+        text = SpliceChars(text, --cursor, 1, "");
       }
       break;
     case commands::KeyEvent::DEL:
-      if (!after.empty()) {
-        PopFrontChar(&after);
-      }
+      text = SpliceChars(text, cursor, 1, "");
       break;
     case commands::KeyEvent::LEFT:
-      if (!before.empty()) {
-        const size_t length = Util::CharsLen(before);
-        after = absl::StrCat(Util::Utf8SubString(before, length - 1), after);
-        PopBackChar(&before);
-      }
+      cursor -= (cursor > 0);
       break;
     case commands::KeyEvent::RIGHT:
-      if (!after.empty()) {
-        absl::StrAppend(&before, Util::Utf8SubString(after, 0, 1));
-        PopFrontChar(&after);
-      }
+      cursor += (cursor < length);
       break;
     case commands::KeyEvent::HOME:
-      after = absl::StrCat(before, after);
-      before.clear();
+      cursor = 0;
       break;
     case commands::KeyEvent::END:
-      absl::StrAppend(&before, after);
-      after.clear();
+      cursor = length;
       break;
     default:
       return false;
@@ -3022,11 +3005,8 @@ bool Session::OpenWordRegisterDialog(commands::Command* command) {
   for (const commands::Preedit::Segment& segment : output->preedit().segment()) {
     nested += segment.value();
   }
-  commands::Output::WordRegisterDefault dialog_default;
-  dialog_default.set_reading(registration_key_);
-  dialog_default.set_word(
-      absl::StrCat(registration_value_, nested, registration_after_));
-  dialog_default.set_dictionary(dictionary::kInlineRegistrationDictionaryName);
+  const std::string word =
+      SpliceChars(registration_value_, registration_cursor_, 0, nested);
 
   SetStateToPredompositionAndCancel(context_.get());
   ResetWordRegistration();
@@ -3036,14 +3016,18 @@ bool Session::OpenWordRegisterDialog(commands::Command* command) {
   output->set_consumed(true);
   OutputMode(command);
   output->set_launch_tool_mode(commands::Output::WORD_REGISTER_DIALOG);
-  *output->mutable_word_register_default() = std::move(dialog_default);
+  commands::Output::WordRegisterDefault* dialog_default =
+      output->mutable_word_register_default();
+  dialog_default->set_reading(registration_key_);
+  dialog_default->set_word(word);
+  dialog_default->set_dictionary(dictionary::kInlineRegistrationName);
   return true;
 }
 
 void Session::ResetWordRegistration() {
   registration_context_.reset();
   registration_value_.clear();
-  registration_after_.clear();
+  registration_cursor_ = 0;
   registration_head_.clear();
   registration_tail_.clear();
 }
@@ -3059,7 +3043,10 @@ void Session::PostProcessWordRegistration(commands::Command* command) {
   // The text is held back until the registration is finished with Enter.
   commands::Output* output = command->mutable_output();
   if (output->has_result()) {
-    registration_value_ += output->result().value();
+    const std::string& committed = output->result().value();
+    registration_value_ =
+        SpliceChars(registration_value_, registration_cursor_, 0, committed);
+    registration_cursor_ += Util::CharsLen(committed);
     output->clear_result();
   }
   DecorateWordRegistrationOutput(command);
@@ -3067,7 +3054,7 @@ void Session::PostProcessWordRegistration(commands::Command* command) {
 
 // Stores the word and puts the result to commit into |command|.
 void Session::FinishWordRegistration(commands::Command* command) {
-  const std::string word = absl::StrCat(registration_value_, registration_after_);
+  const std::string& word = registration_value_;
   // A blank text is committed as it is but is not worth a dictionary entry.
   if (!IsBlank(word) &&
       dictionary::AddInlineRegisteredWord(registration_key_, word)) {
@@ -3096,7 +3083,9 @@ void ShiftCandidateWindowPosition(uint32_t offset,
 // the usual ones (the composition: dotted, the converted segment: highlighted).
 void Session::DecorateWordRegistrationOutput(commands::Command* command) const {
   const std::string prefix =
-      absl::StrCat("[登録:", registration_key_, "] ", registration_value_);
+      absl::StrCat("[登録:", registration_key_, "] ",
+                   Util::Utf8SubString(registration_value_, 0,
+                                       registration_cursor_));
   const uint32_t prefix_length = Util::CharsLen(prefix);
   commands::Output* output = command->mutable_output();
 
@@ -3124,7 +3113,8 @@ void Session::DecorateWordRegistrationOutput(commands::Command* command) const {
     }
     preedit.set_is_toggleable(nested.is_toggleable());
   }
-  add_plain_segment(registration_after_);
+  add_plain_segment(
+      std::string(Util::Utf8SubString(registration_value_, registration_cursor_)));
   *output->mutable_preedit() = std::move(preedit);
 
   if (output->has_candidate_window()) {

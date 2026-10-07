@@ -62,13 +62,13 @@ bool InlineRegistrationRewriter::Rewrite(const ConversionRequest& request,
       if (!(candidate->attributes & converter::Attribute::USER_DICTIONARY) ||
           !words_.contains({candidate->content_key, candidate->content_value}) ||
           absl::EndsWith(candidate->description,
-                         dictionary::kInlineRegistrationDescription)) {
+                         dictionary::kInlineRegistrationName)) {
         continue;
       }
       if (!candidate->description.empty()) {
         candidate->description += " ";
       }
-      candidate->description += dictionary::kInlineRegistrationDescription;
+      candidate->description += dictionary::kInlineRegistrationName;
       modified = true;
     }
   }

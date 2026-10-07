@@ -293,9 +293,9 @@ class Session {
   // keeps the conversion that started it.
   std::unique_ptr<ImeContext> registration_context_;
   std::string registration_key_;
-  // The text committed in the nested input: before and after the cursor.
+  // The text committed in the nested input and the cursor in it (characters).
   std::string registration_value_;
-  std::string registration_after_;
+  size_t registration_cursor_ = 0;
   // Texts of the segments around the focused one, which are committed with the
   // registered word if inline_register_focused_segment is on.
   std::string registration_head_;
