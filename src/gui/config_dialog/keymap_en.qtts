@@ -64,6 +64,10 @@
         <translation>Select next candidate</translation>
     </message>
     <message>
+        <source>StartWordRegistration</source>
+        <translation>Start word registration</translation>
+    </message>
+    <message>
         <source>ConvertNextPage</source>
         <translation>Select next page</translation>
     </message>

@@ -815,6 +815,20 @@
               </property>
              </widget>
             </item>
+            <item row="5" column="0" colspan="7">
+             <widget class="QCheckBox" name="inlineRegisterCancelAtOnceCheckBox">
+              <property name="text">
+               <string>[試験中] 単語登録: Esc で一度に取り消す</string>
+              </property>
+             </widget>
+            </item>
+            <item row="6" column="0" colspan="7">
+             <widget class="QCheckBox" name="inlineRegisterFocusedSegmentCheckBox">
+              <property name="text">
+               <string>[試験中] 単語登録: 選択中の文節の読みだけを登録する</string>
+              </property>
+             </widget>
+            </item>
            </layout>
           </widget>
          </item>

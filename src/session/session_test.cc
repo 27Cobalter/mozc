@@ -56,6 +56,7 @@
 #include "converter/segments.h"
 #include "data_manager/testing/mock_data_manager.h"
 #include "dictionary/pos_matcher.h"
+#include "dictionary/user_dictionary_storage.h"
 #include "engine/engine.h"
 #include "engine/engine_converter.h"
 #include "engine/engine_mock.h"
@@ -235,6 +236,11 @@ std::string GetComposition(const commands::Command& command) {
     preedit.append(command.output().preedit().segment(i).value());
   }
   return preedit;
+}
+
+// True if the preedit shows the inline word registration prompt.
+bool IsRegistering(const commands::Command& command) {
+  return absl::StartsWith(GetComposition(command), "[登録:");
 }
 
 ::testing::AssertionResult EnsurePreedit(const absl::string_view expected,
@@ -3736,14 +3742,397 @@ TEST_F(SessionTest, Issue1805239) {
   SendSpecialKey(commands::KeyEvent::SPACE, &session, &command);
   EXPECT_TRUE(command.output().has_candidate_window());
 
-  SendSpecialKey(commands::KeyEvent::SPACE, &session, &command);
-  EXPECT_TRUE(command.output().has_candidate_window());
+  // Moving past the last candidate starts the inline word registration
+  // instead of rotating to the first candidate.
+  bool registering = false;
+  for (int i = 0; i < 20 && !registering; ++i) {
+    SendSpecialKey(commands::KeyEvent::SPACE, &session, &command);
+    registering = IsRegistering(command);
+  }
+  EXPECT_TRUE(registering);
+}
 
-  SendSpecialKey(commands::KeyEvent::SPACE, &session, &command);
-  EXPECT_TRUE(command.output().has_candidate_window());
+// Sets up a two-segment conversion of "わたしのなまえ" and moves the focus to
+// the last candidate of the first segment.
+class InlineWordRegistrationTest : public SessionTest {
+ protected:
+  void StartRegistration(Session* session, commands::Command* command,
+                         MockConverter* converter) {
+    InsertCharacterChars("watasinonamae", session, command);
 
+    Segments segments;
+    Segment* segment = segments.add_segment();
+    segment->set_key("わたしのなまえ");
+    converter::Candidate* candidate = segment->add_candidate();
+    candidate->value = "私の名前";
+    candidate = segment->add_candidate();
+    candidate->value = "渡しの名前";
+    const ConversionRequest request = CreateConversionRequest(*session);
+    FillT13Ns(request, &segments);
+    EXPECT_CALL(*converter, StartConversion(_, _))
+        .WillOnce(DoAll(SetArgPointee<1>(segments), Return(true)));
+
+    bool registering = false;
+    for (int i = 0; i < 20 && !registering; ++i) {
+      SendSpecialKey(commands::KeyEvent::SPACE, session, command);
+      registering = IsRegistering(*command);
+    }
+    ASSERT_TRUE(registering);
+  }
+
+  // Types the romaji |keys| and commits the hiragana into the word.
+  void CommitToWord(const std::string& keys, Session* session,
+                    commands::Command* command) {
+    InsertCharacterChars(keys, session, command);
+    SendSpecialKey(commands::KeyEvent::ENTER, session, command);
+  }
+};
+
+TEST_F(InlineWordRegistrationTest, RegisterAndCommit) {
+  MockEngine engine;
+  std::shared_ptr<MockConverter> converter = CreateEngineConverterMock(&engine);
+  Session session(engine);
+  InitSessionToPrecomposition(&session);
+  commands::Command command;
+  StartRegistration(&session, &command, converter.get());
+  EXPECT_EQ(GetComposition(command), "[登録:わたしのなまえ] ");
+
+  InsertCharacterChars("a", &session, &command);
+  EXPECT_EQ(GetComposition(command), "[登録:わたしのなまえ] あ");
+  EXPECT_FALSE(command.output().has_result());
+
+  // Convert "あ" and keep typing. The converted text is held back but must stay
+  // visible in front of the new input.
+  Segments nested;
+  Segment* segment = nested.add_segment();
+  segment->set_key("あ");
+  segment->add_candidate()->value = "亜";
+  FillT13Ns(CreateConversionRequest(session), &nested);
+  EXPECT_CALL(*converter, StartConversion(_, _))
+      .WillOnce(DoAll(SetArgPointee<1>(nested), Return(true)));
   SendSpecialKey(commands::KeyEvent::SPACE, &session, &command);
-  EXPECT_TRUE(command.output().has_candidate_window());
+  SendSpecialKey(commands::KeyEvent::SPACE, &session, &command);
+  ASSERT_TRUE(command.output().has_candidate_window());
+  SendSpecialKey(commands::KeyEvent::UP, &session, &command);
+  ASSERT_TRUE(command.output().has_candidate_window());
+  EXPECT_EQ(GetComposition(command), "[登録:わたしのなまえ] 亜");
+  InsertCharacterChars("i", &session, &command);
+  EXPECT_EQ(GetComposition(command), "[登録:わたしのなまえ] 亜い");
+  EXPECT_FALSE(command.output().has_result());
+
+  // The first Enter only commits the composition into the word.
+  SendSpecialKey(commands::KeyEvent::ENTER, &session, &command);
+  EXPECT_FALSE(command.output().has_result());
+  EXPECT_EQ(GetComposition(command), "[登録:わたしのなまえ] 亜い");
+  EXPECT_FALSE(session.ConsumeRegisteredWord().has_value());
+
+  // The second Enter finishes the registration.
+  SendSpecialKey(commands::KeyEvent::ENTER, &session, &command);
+  ASSERT_TRUE(command.output().has_result());
+  EXPECT_EQ(command.output().result().value(), "亜い");
+  EXPECT_EQ(command.output().result().key(), "わたしのなまえ");
+  EXPECT_FALSE(command.output().has_preedit());
+  const auto word = session.ConsumeRegisteredWord();
+  ASSERT_TRUE(word.has_value());
+  EXPECT_EQ(word->first, "わたしのなまえ");
+  EXPECT_EQ(word->second, "亜い");
+  EXPECT_FALSE(session.ConsumeRegisteredWord().has_value());
+
+  UserDictionaryStorage storage;
+  ASSERT_TRUE(storage.Load().ok());
+  const auto id = storage.GetUserDictionaryId("インライン登録");
+  ASSERT_TRUE(id.ok());
+  const auto& entries = storage.GetUserDictionary(*id)->entries();
+  ASSERT_GT(entries.size(), 0);
+  EXPECT_EQ(entries[entries.size() - 1].key(), "わたしのなまえ");
+  EXPECT_EQ(entries[entries.size() - 1].value(), "亜い");
+
+  // Back to the normal precomposition state.
+  InsertCharacterChars("a", &session, &command);
+  EXPECT_EQ(GetComposition(command), "あ");
+}
+
+TEST_F(InlineWordRegistrationTest, NextPageOnLastPageStartsRegistration) {
+  MockEngine engine;
+  std::shared_ptr<MockConverter> converter = CreateEngineConverterMock(&engine);
+  Session session(engine);
+  InitSessionToPrecomposition(&session);
+  commands::Command command;
+  InsertCharacterChars("watasinonamae", &session, &command);
+
+  Segments segments;
+  Segment* segment = segments.add_segment();
+  segment->set_key("わたしのなまえ");
+  segment->add_candidate()->value = "私の名前";
+  FillT13Ns(CreateConversionRequest(session), &segments);
+  EXPECT_CALL(*converter, StartConversion(_, _))
+      .WillOnce(DoAll(SetArgPointee<1>(segments), Return(true)));
+  SendSpecialKey(commands::KeyEvent::SPACE, &session, &command);
+
+  // All the candidates fit in one page, so the next page is the registration.
+  command.Clear();
+  session.ConvertNextPage(&command);
+  EXPECT_TRUE(IsRegistering(command));
+}
+
+TEST_F(InlineWordRegistrationTest, PredictionStartsRegistration) {
+  MockEngine engine;
+  std::shared_ptr<MockConverter> converter = CreateEngineConverterMock(&engine);
+  Session session(engine);
+  InitSessionToPrecomposition(&session);
+  commands::Command command;
+  InsertCharacterChars("watasi", &session, &command);
+
+  Segments segments;
+  Segment* segment = segments.add_segment();
+  segment->set_key("わたし");
+  segment->add_candidate()->value = "私";
+  segment->add_candidate()->value = "渡し";
+  EXPECT_CALL(*converter, StartPredictionWithPreviousSuggestion(_, _, _))
+      .WillOnce(DoAll(SetArgPointee<2>(segments), Return(true)));
+
+  // The prediction does not wrap around either: after the last candidate the
+  // registration starts for the reading being typed.
+  bool registering = false;
+  for (int i = 0; i < 10 && !registering; ++i) {
+    command.Clear();
+    session.PredictAndConvert(&command);
+    registering = IsRegistering(command);
+  }
+  ASSERT_TRUE(registering);
+  EXPECT_EQ(GetComposition(command), "[登録:わたし] ");
+}
+
+TEST_F(InlineWordRegistrationTest, BlankIsNotRegistered) {
+  MockEngine engine;
+  std::shared_ptr<MockConverter> converter = CreateEngineConverterMock(&engine);
+  Session session(engine);
+  InitSessionToPrecomposition(&session);
+  commands::Command command;
+  StartRegistration(&session, &command, converter.get());
+
+  // A full-width space is committed as it is but not registered.
+  SwitchCompositionMode(commands::FULL_ASCII, &session);
+  SendSpecialKey(commands::KeyEvent::SPACE, &session, &command);
+  EXPECT_FALSE(command.output().has_result());
+  SendSpecialKey(commands::KeyEvent::ENTER, &session, &command);
+  ASSERT_TRUE(command.output().has_result());
+  EXPECT_EQ(command.output().result().value(), "　");
+  EXPECT_FALSE(session.ConsumeRegisteredWord().has_value());
+  EXPECT_FALSE(IsRegistering(command));
+}
+
+// Experimental options of the inline word registration.
+TEST_F(InlineWordRegistrationTest, CancelAtOnce) {
+  MockEngine engine;
+  std::shared_ptr<MockConverter> converter = CreateEngineConverterMock(&engine);
+  Session session(engine);
+  config::Config config;
+  config.set_inline_register_cancel_at_once(true);
+  session.SetConfig(config);
+  InitSessionToPrecomposition(&session);
+  commands::Command command;
+  StartRegistration(&session, &command, converter.get());
+
+  // Esc gives up the whole registration even if something is being entered.
+  InsertCharacterChars("a", &session, &command);
+  EXPECT_EQ(GetComposition(command), "[登録:わたしのなまえ] あ");
+  SendSpecialKey(commands::KeyEvent::ESCAPE, &session, &command);
+  EXPECT_EQ(GetComposition(command), "わたしのなまえ");
+  EXPECT_FALSE(session.ConsumeRegisteredWord().has_value());
+}
+
+uint32_t CursorOf(const commands::Command& command) {
+  return command.output().preedit().cursor();
+}
+
+TEST_F(InlineWordRegistrationTest, EditCommittedText) {
+  MockEngine engine;
+  std::shared_ptr<MockConverter> converter = CreateEngineConverterMock(&engine);
+  Session session(engine);
+  InitSessionToPrecomposition(&session);
+  commands::Command command;
+  StartRegistration(&session, &command, converter.get());
+  const uint32_t prefix = Util::CharsLen("[登録:わたしのなまえ] ");
+
+  CommitToWord("a", &session, &command);
+  CommitToWord("i", &session, &command);
+  EXPECT_EQ(GetComposition(command), "[登録:わたしのなまえ] あい");
+  EXPECT_EQ(CursorOf(command), prefix + 2);
+
+  // The committed text has no decoration, the input has the dotted one.
+  SendSpecialKey(commands::KeyEvent::LEFT, &session, &command);
+  EXPECT_EQ(CursorOf(command), prefix + 1);
+  InsertCharacterChars("u", &session, &command);
+  EXPECT_EQ(GetComposition(command), "[登録:わたしのなまえ] あうい");
+  ASSERT_EQ(command.output().preedit().segment_size(), 3);
+  EXPECT_EQ(command.output().preedit().segment(0).annotation(),
+            commands::Preedit::Segment::NONE);
+  EXPECT_EQ(command.output().preedit().segment(1).value(), "う");
+  EXPECT_EQ(command.output().preedit().segment(1).annotation(),
+            commands::Preedit::Segment::UNDERLINE);
+  EXPECT_EQ(command.output().preedit().segment(2).value(), "い");
+  EXPECT_EQ(command.output().preedit().segment(2).annotation(),
+            commands::Preedit::Segment::NONE);
+  EXPECT_EQ(CursorOf(command), prefix + 2);
+  SendSpecialKey(commands::KeyEvent::ENTER, &session, &command);
+  EXPECT_EQ(GetComposition(command), "[登録:わたしのなまえ] あうい");
+  EXPECT_EQ(CursorOf(command), prefix + 2);
+
+  // Home / Del / End / BS edit the committed text.
+  SendSpecialKey(commands::KeyEvent::HOME, &session, &command);
+  EXPECT_EQ(CursorOf(command), prefix);
+  SendSpecialKey(commands::KeyEvent::DEL, &session, &command);
+  EXPECT_EQ(GetComposition(command), "[登録:わたしのなまえ] うい");
+  SendSpecialKey(commands::KeyEvent::END, &session, &command);
+  EXPECT_EQ(CursorOf(command), prefix + 2);
+  SendSpecialKey(commands::KeyEvent::BACKSPACE, &session, &command);
+  EXPECT_EQ(GetComposition(command), "[登録:わたしのなまえ] う");
+  SendSpecialKey(commands::KeyEvent::RIGHT, &session, &command);
+  EXPECT_EQ(CursorOf(command), prefix + 1);
+
+  SendSpecialKey(commands::KeyEvent::ENTER, &session, &command);
+  ASSERT_TRUE(command.output().has_result());
+  EXPECT_EQ(command.output().result().value(), "う");
+}
+
+// "歩く" Enter BS removes just "く".
+TEST_F(InlineWordRegistrationTest, BackspaceAfterEnterRemovesOneChar) {
+  MockEngine engine;
+  std::shared_ptr<MockConverter> converter = CreateEngineConverterMock(&engine);
+  Session session(engine);
+  InitSessionToPrecomposition(&session);
+  commands::Command command;
+  StartRegistration(&session, &command, converter.get());
+
+  CommitToWord("a", &session, &command);
+  CommitToWord("i", &session, &command);
+  SendSpecialKey(commands::KeyEvent::BACKSPACE, &session, &command);
+  EXPECT_EQ(GetComposition(command), "[登録:わたしのなまえ] あ");
+  SendSpecialKey(commands::KeyEvent::BACKSPACE, &session, &command);
+  EXPECT_EQ(GetComposition(command), "[登録:わたしのなまえ] ");
+  EXPECT_TRUE(IsRegistering(command));
+  // BS on the empty text gives up the registration.
+  SendSpecialKey(commands::KeyEvent::BACKSPACE, &session, &command);
+  EXPECT_FALSE(IsRegistering(command));
+}
+
+TEST_F(InlineWordRegistrationTest, KeysAreNotPassedToApplication) {
+  MockEngine engine;
+  std::shared_ptr<MockConverter> converter = CreateEngineConverterMock(&engine);
+  Session session(engine);
+  InitSessionToPrecomposition(&session);
+  commands::Command command;
+  StartRegistration(&session, &command, converter.get());
+
+  // Unassigned Ctrl / Alt shortcuts are consumed and do nothing.
+  for (const char* key : {"Ctrl n", "Alt x", "Ctrl Alt z"}) {
+    EXPECT_TRUE(TestSendKey(key, &session, &command)) << key;
+    EXPECT_TRUE(command.output().consumed()) << key;
+    EXPECT_TRUE(SendKey(key, &session, &command)) << key;
+    EXPECT_TRUE(command.output().consumed()) << key;
+    EXPECT_FALSE(command.output().has_key()) << key;
+    EXPECT_EQ(GetComposition(command), "[登録:わたしのなまえ] ") << key;
+  }
+  // So are the cursor keys on the empty input.
+  for (const char* key : {"Left", "Right", "Home", "End", "Delete"}) {
+    EXPECT_TRUE(TestSendKey(key, &session, &command)) << key;
+    EXPECT_TRUE(command.output().consumed()) << key;
+  }
+}
+
+TEST_F(InlineWordRegistrationTest, OpenWordRegisterDialog) {
+  MockEngine engine;
+  std::shared_ptr<MockConverter> converter = CreateEngineConverterMock(&engine);
+  Session session(engine);
+  InitSessionToPrecomposition(&session);
+  commands::Command command;
+  StartRegistration(&session, &command, converter.get());
+
+  CommitToWord("a", &session, &command);
+  InsertCharacterChars("i", &session, &command);
+
+  // The word of the dialog is the committed text and the input being edited.
+  EXPECT_TRUE(TestSendKey("Ctrl Shift Enter", &session, &command));
+  EXPECT_TRUE(command.output().consumed());
+  ASSERT_TRUE(SendKey("Ctrl Shift Enter", &session, &command));
+  EXPECT_EQ(command.output().launch_tool_mode(),
+            commands::Output::WORD_REGISTER_DIALOG);
+  EXPECT_EQ(command.output().word_register_default().reading(),
+            "わたしのなまえ");
+  EXPECT_EQ(command.output().word_register_default().word(), "あい");
+  EXPECT_EQ(command.output().word_register_default().dictionary(),
+            "インライン登録");
+  // The prompt must not remain in the application.
+  EXPECT_FALSE(command.output().has_preedit());
+  EXPECT_FALSE(command.output().has_result());
+  EXPECT_FALSE(session.ConsumeRegisteredWord().has_value());
+
+  // Back to the normal precomposition state.
+  InsertCharacterChars("a", &session, &command);
+  EXPECT_EQ(GetComposition(command), "あ");
+}
+
+TEST_F(InlineWordRegistrationTest, FocusedSegment) {
+  MockEngine engine;
+  std::shared_ptr<MockConverter> converter = CreateEngineConverterMock(&engine);
+  Session session(engine);
+  config::Config config;
+  config.set_inline_register_focused_segment(true);
+  session.SetConfig(config);
+  InitSessionToPrecomposition(&session);
+  commands::Command command;
+  InsertCharacterChars("watasinonamae", &session, &command);
+
+  Segments segments;
+  Segment* segment = segments.add_segment();
+  segment->set_key("わたしの");
+  segment->add_candidate()->value = "私の";
+  segment = segments.add_segment();
+  segment->set_key("なまえ");
+  segment->add_candidate()->value = "名前";
+  segment->add_candidate()->value = "ナマエ";
+  FillT13Ns(CreateConversionRequest(session), &segments);
+  EXPECT_CALL(*converter, StartConversion(_, _))
+      .WillOnce(DoAll(SetArgPointee<1>(segments), Return(true)));
+  SendSpecialKey(commands::KeyEvent::SPACE, &session, &command);
+  SendSpecialKey(commands::KeyEvent::RIGHT, &session, &command);
+
+  bool registering = false;
+  for (int i = 0; i < 20 && !registering; ++i) {
+    SendSpecialKey(commands::KeyEvent::SPACE, &session, &command);
+    registering = IsRegistering(command);
+  }
+  ASSERT_TRUE(registering);
+  EXPECT_EQ(GetComposition(command), "[登録:なまえ] ");
+
+  // Only the focused segment is registered, the other one is kept.
+  InsertCharacterChars("a", &session, &command);
+  SendSpecialKey(commands::KeyEvent::ENTER, &session, &command);
+  SendSpecialKey(commands::KeyEvent::ENTER, &session, &command);
+  ASSERT_TRUE(command.output().has_result());
+  EXPECT_EQ(command.output().result().value(), "私のあ");
+  const auto word = session.ConsumeRegisteredWord();
+  ASSERT_TRUE(word.has_value());
+  EXPECT_EQ(word->first, "なまえ");
+  EXPECT_EQ(word->second, "あ");
+}
+
+TEST_F(InlineWordRegistrationTest, CancelReturnsToConversion) {
+  MockEngine engine;
+  std::shared_ptr<MockConverter> converter = CreateEngineConverterMock(&engine);
+  Session session(engine);
+  InitSessionToPrecomposition(&session);
+  commands::Command command;
+  StartRegistration(&session, &command, converter.get());
+
+  // Esc on the empty nested input gives up the registration and goes back to
+  // the reading before the conversion.
+  SendSpecialKey(commands::KeyEvent::ESCAPE, &session, &command);
+  EXPECT_TRUE(command.output().consumed());
+  EXPECT_EQ(GetComposition(command), "わたしのなまえ");
+  EXPECT_FALSE(command.output().has_candidate_window());
+  EXPECT_FALSE(session.ConsumeRegisteredWord().has_value());
 }
 
 TEST_F(SessionTest, Issue1816861) {
@@ -10391,9 +10780,9 @@ TEST_F(SessionTest, MultiSegmentSelectionFocusRightAndLeft) {
               absl::StrContains(full_preedit, "中ノ") ||
               absl::StrContains(full_preedit, "なか"));
 
-  // Cycle back to "私の名前は" and commit.
+  // Go back to "私の名前は" and commit.
   command.Clear();
-  session.ConvertNext(&command);
+  session.ConvertPrev(&command);
   ASSERT_TRUE(command.output().has_preedit());
   ASSERT_EQ(command.output().preedit().segment(0).value(), "私の名前は");
 

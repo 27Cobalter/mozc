@@ -168,6 +168,7 @@ struct ConversionState {
     SEGMENT_WIDTH_EXPAND,
     SEGMENT_WIDTH_SHRINK,
     CONVERT_NEXT,
+    START_WORD_REGISTRATION,  // Register a word without leaving the IME.
     CONVERT_PREV,
     CONVERT_NEXT_PAGE,
     CONVERT_PREV_PAGE,

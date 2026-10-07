@@ -167,6 +167,11 @@ class CandidateList final {
   void MoveFirst() { focused_index_ = 0; }
   void MoveLast() { focused_index_ = last_index(); }
   bool MoveNext();
+  // Returns true if MoveNext() would wrap around to the first candidate,
+  // i.e. the deepest focused candidate is the last one.
+  bool IsFocusedLast() const;
+  // Same for MoveNextPage(): the focus is on the last page.
+  bool IsFocusedOnLastPage() const;
   bool MovePrev();
   bool MoveNextPage();
   bool MovePrevPage();

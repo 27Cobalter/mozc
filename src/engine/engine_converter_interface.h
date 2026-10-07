@@ -232,6 +232,11 @@ class EngineConverterInterface {
 
   // Move the focus of candidates.
   virtual void CandidateNext(const composer::Composer& composer) = 0;
+  // Returns true if CONVERSION or PREDICTION state and CandidateNext() would
+  // wrap around to the first candidate.
+  virtual bool IsFocusedCandidateLast() const = 0;
+  // Same for CandidateNextPage(): the focus is on the last page.
+  virtual bool IsFocusedCandidateOnLastPage() const = 0;
   virtual void CandidateNextPage() = 0;
   virtual void CandidatePrev() = 0;
   virtual void CandidatePrevPage() = 0;

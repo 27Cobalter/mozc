@@ -127,6 +127,24 @@ int CandidateList::next_available_id() const {
   return result;
 }
 
+bool CandidateList::IsFocusedLast() const {
+  if (!IsLast(focused_index_)) {
+    return false;
+  }
+  const Candidate& cand = focused_candidate();
+  return !cand.HasSubcandidateList() ||
+         cand.subcandidate_list().IsFocusedLast();
+}
+
+bool CandidateList::IsFocusedOnLastPage() const {
+  if (!IsLastPage(focused_index_)) {
+    return false;
+  }
+  const Candidate& cand = focused_candidate();
+  return !cand.HasSubcandidateList() ||
+         cand.subcandidate_list().IsFocusedOnLastPage();
+}
+
 bool CandidateList::MoveNext() {
   // If the current candidate points to subcandidate list, the focused
   // candidate in the subcandidate list will be operated.

@@ -41,10 +41,17 @@
 
 #include "absl/log/check.h"
 #include "absl/log/log.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/ascii.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/strip.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "base/clock.h"
 #include "base/util.h"
+#include "dictionary/inline_registration.h"
+#include "dictionary/user_dictionary_util.h"
 #include "composer/composer.h"
 #include "composer/key_event_util.h"
 #include "composer/table.h"
@@ -52,6 +59,7 @@
 #include "engine/engine_interface.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
+#include "protocol/user_dictionary_storage.pb.h"
 #include "session/ime_context.h"
 #include "session/key_event_transformer.h"
 #include "session/keymap.h"
@@ -174,6 +182,69 @@ void SetStateToPredompositionAndCancel(ImeContext* context) {
   }
 }
 
+// True if the text consists only of half/full-width white spaces.
+bool IsBlank(absl::string_view text) {
+  text = absl::StripAsciiWhitespace(text);
+  while (absl::ConsumePrefix(&text, "　")) {
+    text = absl::StripAsciiWhitespace(text);
+  }
+  return text.empty();
+}
+
+bool IsSpecialKey(const commands::KeyEvent& key,
+                  commands::KeyEvent::SpecialKey special_key) {
+  return key.has_special_key() && key.special_key() == special_key;
+}
+
+uint32_t NormalizedModifiers(const commands::KeyEvent& key) {
+  commands::KeyEvent normalized;
+  KeyEventUtil::NormalizeModifiers(key, &normalized);
+  return KeyEventUtil::GetModifiers(normalized);
+}
+
+// True for a key (not a modifier alone) pressed with Ctrl or Alt.
+bool IsCtrlAltKey(const commands::KeyEvent& key) {
+  return !IsPureModifierKeyEvent(key) &&
+         (NormalizedModifiers(key) &
+          (commands::KeyEvent::CTRL | commands::KeyEvent::ALT)) != 0;
+}
+
+// Ctrl+Shift+Enter in the inline word registration opens the word register
+// dialog.
+bool IsOpenWordRegisterDialogKey(const commands::KeyEvent& key) {
+  return IsSpecialKey(key, commands::KeyEvent::ENTER) &&
+         KeyEventUtil::IsCtrlShift(NormalizedModifiers(key));
+}
+
+// The keys that edit the text committed in the inline word registration while
+// the nested input is empty.
+bool IsWordRegistrationTextKey(const commands::KeyEvent& key) {
+  if (IsCtrlAltKey(key) || !key.has_special_key()) {
+    return false;
+  }
+  switch (key.special_key()) {
+    case commands::KeyEvent::ENTER:
+    case commands::KeyEvent::ESCAPE:
+    case commands::KeyEvent::BACKSPACE:
+    case commands::KeyEvent::DEL:
+    case commands::KeyEvent::LEFT:
+    case commands::KeyEvent::RIGHT:
+    case commands::KeyEvent::HOME:
+    case commands::KeyEvent::END:
+      return true;
+    default:
+      return false;
+  }
+}
+
+// Removes the last / first character.
+void PopBackChar(std::string* text) {
+  *text = std::string(Util::Utf8SubString(*text, 0, Util::CharsLen(*text) - 1));
+}
+void PopFrontChar(std::string* text) {
+  *text = std::string(Util::Utf8SubString(*text, 1));
+}
+
 commands::CompositionMode ToCompositionMode(
     mozc::transliteration::TransliterationType type) {
   commands::CompositionMode mode = commands::HIRAGANA;
@@ -280,6 +351,24 @@ void Session::EnsureIMEIsOn() {
 }
 
 bool Session::SendCommand(commands::Command* command) {
+  if (registration_context_ == nullptr) {
+    return SendCommandInternal(command);
+  }
+  switch (command->input().command().type()) {
+    case commands::SessionCommand::REVERT:
+    case commands::SessionCommand::RESET_CONTEXT:
+      // The client lost the composition. Give up the registration.
+      ResetWordRegistration();
+      return SendCommandInternal(command);
+    default:
+      break;
+  }
+  const bool result = SendCommandInternal(command);
+  PostProcessWordRegistration(command);
+  return result;
+}
+
+bool Session::SendCommandInternal(commands::Command* command) {
   UpdateTime();
   UpdatePreferences(command);
   if (!command->input().has_command()) {
@@ -412,6 +501,27 @@ bool Session::SendCommand(commands::Command* command) {
 }
 
 bool Session::TestSendKey(commands::Command* command) {
+  const bool result = TestSendKeyInternal(command);
+  if (registration_context_ == nullptr) {
+    return result;
+  }
+  // The inline word registration keeps the keys it handles (the text editing
+  // keys, and Ctrl/Alt shortcuts that nothing is assigned to) from the
+  // application.
+  const commands::KeyEvent& key = command->input().key();
+  if (command->output().consumed() ||
+      !(IsCtrlAltKey(key) || IsOpenWordRegisterDialogKey(key) ||
+        (context_->state() == ImeContext::PRECOMPOSITION &&
+         IsWordRegistrationTextKey(key)) ||
+        (context_->GetConfig().inline_register_cancel_at_once() &&
+         IsSpecialKey(key, commands::KeyEvent::ESCAPE)))) {
+    return result;
+  }
+  command->mutable_output()->clear_key();
+  return DoNothing(command);
+}
+
+bool Session::TestSendKeyInternal(commands::Command* command) {
   UpdateTime();
   UpdatePreferences(command);
   TransformInput(command->mutable_input());
@@ -508,6 +618,13 @@ bool Session::TestSendKey(commands::Command* command) {
 }
 
 bool Session::SendKey(commands::Command* command) {
+  if (registration_context_ != nullptr) {
+    return SendKeyInWordRegistration(command);
+  }
+  return SendKeyInternal(command);
+}
+
+bool Session::SendKeyInternal(commands::Command* command) {
   UpdateTime();
   UpdatePreferences(command);
   TransformInput(command->mutable_input());
@@ -880,6 +997,9 @@ bool Session::SendKeyConversionState(commands::Command* command) {
 
     case keymap::ConversionState::CONVERT_NEXT:
       return ConvertNext(command);
+
+    case keymap::ConversionState::START_WORD_REGISTRATION:
+      return StartWordRegistration(command) || DoNothing(command);
 
     case keymap::ConversionState::CONVERT_PREV:
       return ConvertPrev(command);
@@ -2328,6 +2448,8 @@ bool Session::DeleteCandidateFromHistory(commands::Command* command) {
   if (!context_->mutable_converter()->DeleteCandidateFromHistory(id)) {
     return DoNothing(command);
   }
+  // A word of the inline registration dictionary may have been deleted.
+  user_dictionary_changed_ = true;
   return ConvertCancel(command);
 }
 
@@ -2639,15 +2761,51 @@ bool Session::ReportBug(commands::Command* command) {
 }
 
 bool Session::ConvertNext(commands::Command* command) {
+  // Going past the last candidate registers a new word instead of rotating.
+  const bool last = registration_context_ == nullptr &&
+                    context_->converter().IsFocusedCandidateLast();
+  const bool predicting =
+      context_->converter().CheckState(EngineConverterInterface::PREDICTION);
+  if (last && !predicting && StartWordRegistration(command)) {
+    return true;
+  }
   command->mutable_output()->set_consumed(true);
+  // The focused index (of the whole candidates) before moving.
+  std::optional<uint32_t> before;
+  if (last && predicting) {
+    commands::Output current;
+    context_->converter().FillOutput(context_->composer(), &current);
+    if (current.candidate_window().has_focused_index()) {
+      before = current.candidate_window().focused_index();
+    }
+  }
   context_->mutable_converter()->CandidateNext(context_->composer());
   Output(command);
+  // In the prediction, CandidateNext() first adds more candidates at the last
+  // one (so the focus moves on). If nothing was added, the focus has not moved
+  // on but gone back (wrapped around): register a word instead.
+  if (before.has_value() && command->output().has_candidate_window() &&
+      command->output().candidate_window().has_focused_index() &&
+      command->output().candidate_window().focused_index() <= *before) {
+    command->mutable_output()->Clear();
+    if (StartWordRegistration(command)) {
+      return true;
+    }
+    command->mutable_output()->set_consumed(true);
+    Output(command);
+  }
   return true;
 }
 
 bool Session::ConvertNextPage(commands::Command* command) {
   if (!(context_->state() & (ImeContext::CONVERSION))) {
     return DoNothing(command);
+  }
+  // Going past the last page registers a new word instead of rotating.
+  if (registration_context_ == nullptr &&
+      context_->converter().IsFocusedCandidateOnLastPage() &&
+      StartWordRegistration(command)) {
+    return true;
   }
   command->mutable_output()->set_consumed(true);
   context_->mutable_converter()->CandidateNextPage();
@@ -2683,6 +2841,285 @@ bool Session::ConvertCancel(commands::Command* command) {
     OutputComposition(command);
   }
   return true;
+}
+
+bool Session::StartWordRegistration(commands::Command* command) {
+  if (registration_context_ != nullptr ||
+      context_->state() != ImeContext::CONVERSION) {
+    return false;
+  }
+  std::string key = context_->composer().GetQueryForConversion();
+  std::string head, tail;
+  if (context_->GetConfig().inline_register_focused_segment()) {
+    // The focused segment is the highlighted one in the preedit.
+    commands::Output converted;
+    context_->converter().FillOutput(context_->composer(), &converted);
+    bool found = false;
+    for (const commands::Preedit::Segment& segment :
+         converted.preedit().segment()) {
+      if (segment.annotation() == commands::Preedit::Segment::HIGHLIGHT &&
+          !found && !segment.key().empty()) {
+        found = true;
+        key = segment.key();
+      } else {
+        (found ? tail : head) += segment.value();
+      }
+    }
+    if (!found) {
+      head.clear();
+      tail.clear();
+    }
+  }
+  if (key.empty() || !user_dictionary::IsValidReading(key)) {
+    return false;
+  }
+
+  registration_key_ = key;
+  registration_head_ = head;
+  registration_tail_ = tail;
+  registration_value_.clear();
+  registration_after_.clear();
+  registration_context_ = std::move(context_);
+  // The nested input starts from a clean composer and converter but keeps the
+  // configuration, keymap and the input mode.
+  context_ = std::make_unique<ImeContext>(*registration_context_);
+  SetStateToPredompositionAndCancel(context_.get());
+  ClearUndoContext();
+
+  command->mutable_output()->set_consumed(true);
+  Output(command);
+  DecorateWordRegistrationOutput(command);
+  return true;
+}
+
+bool Session::SendKeyInWordRegistration(commands::Command* command) {
+  UpdateTime();
+  UpdatePreferences(command);
+  TransformInput(command->mutable_input());
+  const commands::KeyEvent& key = command->input().key();
+  if (IsOpenWordRegisterDialogKey(key)) {
+    return OpenWordRegisterDialog(command);
+  }
+  if (context_->GetConfig().inline_register_cancel_at_once() &&
+      IsSpecialKey(key, commands::KeyEvent::ESCAPE)) {
+    return CancelWordRegistration(command);
+  }
+  if (context_->state() == ImeContext::PRECOMPOSITION &&
+      EditWordRegistrationText(command)) {
+    return true;
+  }
+  const bool result = SendKeyInternal(command);
+  if (!command->output().consumed() && IsCtrlAltKey(key)) {
+    // Nothing is assigned to the key. Do not pass it to the application.
+    command->mutable_output()->clear_key();
+    command->mutable_output()->set_consumed(true);
+  }
+  PostProcessWordRegistration(command);
+  return result;
+}
+
+// The nested input is empty: the keys edit the committed text, which has the
+// cursor. Enter finishes the registration, Esc gives it up.
+bool Session::EditWordRegistrationText(commands::Command* command) {
+  const commands::KeyEvent& key = command->input().key();
+  if (!IsWordRegistrationTextKey(key)) {
+    return false;
+  }
+  std::string& before = registration_value_;
+  std::string& after = registration_after_;
+  const bool empty = before.empty() && after.empty();
+  switch (key.special_key()) {
+    case commands::KeyEvent::ENTER:
+      if (empty) {
+        return CancelWordRegistration(command);
+      }
+      command->mutable_output()->set_consumed(true);
+      OutputMode(command);
+      FinishWordRegistration(command);
+      return true;
+    case commands::KeyEvent::ESCAPE:
+      return CancelWordRegistration(command);
+    case commands::KeyEvent::BACKSPACE:
+      if (empty) {
+        return CancelWordRegistration(command);
+      }
+      if (!before.empty()) {
+        PopBackChar(&before);
+      }
+      break;
+    case commands::KeyEvent::DEL:
+      if (!after.empty()) {
+        PopFrontChar(&after);
+      }
+      break;
+    case commands::KeyEvent::LEFT:
+      if (!before.empty()) {
+        const size_t length = Util::CharsLen(before);
+        after = absl::StrCat(Util::Utf8SubString(before, length - 1), after);
+        PopBackChar(&before);
+      }
+      break;
+    case commands::KeyEvent::RIGHT:
+      if (!after.empty()) {
+        absl::StrAppend(&before, Util::Utf8SubString(after, 0, 1));
+        PopFrontChar(&after);
+      }
+      break;
+    case commands::KeyEvent::HOME:
+      after = absl::StrCat(before, after);
+      before.clear();
+      break;
+    case commands::KeyEvent::END:
+      absl::StrAppend(&before, after);
+      after.clear();
+      break;
+    default:
+      return false;
+  }
+  command->mutable_output()->set_consumed(true);
+  OutputMode(command);
+  DecorateWordRegistrationOutput(command);
+  return true;
+}
+
+// Gives up the registration and goes back to the composition before the
+// conversion, as SKK does.
+bool Session::CancelWordRegistration(commands::Command* command) {
+  context_ = std::move(registration_context_);
+  ResetWordRegistration();
+  ClearUndoContext();
+  return ConvertCancel(command);
+}
+
+// [my-patches] The word is edited in the dialog, where text from the other
+// applications can be pasted. The preedit is emptied so that the inline
+// prompt is not inserted into the application when the dialog takes the focus.
+bool Session::OpenWordRegisterDialog(commands::Command* command) {
+  commands::Output* output = command->mutable_output();
+  // The nested input being edited is a part of the word.
+  Output(command);
+  std::string nested;
+  for (const commands::Preedit::Segment& segment : output->preedit().segment()) {
+    nested += segment.value();
+  }
+  commands::Output::WordRegisterDefault dialog_default;
+  dialog_default.set_reading(registration_key_);
+  dialog_default.set_word(
+      absl::StrCat(registration_value_, nested, registration_after_));
+  dialog_default.set_dictionary(dictionary::kInlineRegistrationDictionaryName);
+
+  SetStateToPredompositionAndCancel(context_.get());
+  ResetWordRegistration();
+  ClearUndoContext();
+
+  output->Clear();
+  output->set_consumed(true);
+  OutputMode(command);
+  output->set_launch_tool_mode(commands::Output::WORD_REGISTER_DIALOG);
+  *output->mutable_word_register_default() = std::move(dialog_default);
+  return true;
+}
+
+void Session::ResetWordRegistration() {
+  registration_context_.reset();
+  registration_value_.clear();
+  registration_after_.clear();
+  registration_head_.clear();
+  registration_tail_.clear();
+}
+
+void Session::PostProcessWordRegistration(commands::Command* command) {
+  ClearUndoContext();
+  if (context_->state() == ImeContext::DIRECT) {
+    // IME was turned off. The nested input is simply abandoned.
+    ResetWordRegistration();
+    return;
+  }
+
+  // The text is held back until the registration is finished with Enter.
+  commands::Output* output = command->mutable_output();
+  if (output->has_result()) {
+    registration_value_ += output->result().value();
+    output->clear_result();
+  }
+  DecorateWordRegistrationOutput(command);
+}
+
+// Stores the word and puts the result to commit into |command|.
+void Session::FinishWordRegistration(commands::Command* command) {
+  const std::string word = absl::StrCat(registration_value_, registration_after_);
+  // A blank text is committed as it is but is not worth a dictionary entry.
+  if (!IsBlank(word) &&
+      dictionary::AddInlineRegisteredWord(registration_key_, word)) {
+    registered_word_ = {registration_key_, word};
+  }
+  commands::Result* result = command->mutable_output()->mutable_result();
+  result->set_type(commands::Result::STRING);
+  result->set_value(absl::StrCat(registration_head_, word, registration_tail_));
+  result->set_key(registration_key_);
+  ResetWordRegistration();
+}
+
+namespace {
+void ShiftCandidateWindowPosition(uint32_t offset,
+                                  commands::CandidateWindow* window) {
+  window->set_position(window->position() + offset);
+  if (window->has_sub_candidate_window()) {
+    ShiftCandidateWindowPosition(offset,
+                                 window->mutable_sub_candidate_window());
+  }
+}
+}  // namespace
+
+// Shows "[登録:reading] ", the text committed so far, and the nested input at
+// the cursor in it. The committed text has no decoration, the nested input has
+// the usual ones (the composition: dotted, the converted segment: highlighted).
+void Session::DecorateWordRegistrationOutput(commands::Command* command) const {
+  const std::string prefix =
+      absl::StrCat("[登録:", registration_key_, "] ", registration_value_);
+  const uint32_t prefix_length = Util::CharsLen(prefix);
+  commands::Output* output = command->mutable_output();
+
+  commands::Preedit preedit;
+  auto add_plain_segment = [&preedit](const std::string& text) {
+    if (text.empty()) {
+      return;
+    }
+    commands::Preedit::Segment* segment = preedit.add_segment();
+    segment->set_annotation(commands::Preedit::Segment::NONE);
+    segment->set_value(text);
+    segment->set_value_length(Util::CharsLen(text));
+  };
+  add_plain_segment(prefix);
+  preedit.set_cursor(prefix_length);
+  if (output->has_preedit()) {
+    const commands::Preedit& nested = output->preedit();
+    preedit.set_cursor(prefix_length + nested.cursor());
+    for (const commands::Preedit::Segment& s : nested.segment()) {
+      *preedit.add_segment() = s;
+    }
+    if (nested.has_highlighted_position()) {
+      preedit.set_highlighted_position(prefix_length +
+                                       nested.highlighted_position());
+    }
+    preedit.set_is_toggleable(nested.is_toggleable());
+  }
+  add_plain_segment(registration_after_);
+  *output->mutable_preedit() = std::move(preedit);
+
+  if (output->has_candidate_window()) {
+    ShiftCandidateWindowPosition(prefix_length,
+                                 output->mutable_candidate_window());
+  }
+}
+
+std::optional<std::pair<std::string, std::string>>
+Session::ConsumeRegisteredWord() {
+  return std::exchange(registered_word_, std::nullopt);
+}
+
+bool Session::ConsumeUserDictionaryChanged() {
+  return std::exchange(user_dictionary_changed_, false);
 }
 
 bool Session::PredictAndConvert(commands::Command* command) {

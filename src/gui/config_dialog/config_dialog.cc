@@ -557,6 +557,10 @@ void ConfigDialog::ConvertFromProto(const config::Config& config) {
   SET_CHECKBOX(useJapaneseLayout, use_japanese_layout);
 
   SET_CHECKBOX(useModeIndicator, use_mode_indicator);
+  SET_CHECKBOX(inlineRegisterCancelAtOnceCheckBox,
+               inline_register_cancel_at_once);
+  SET_CHECKBOX(inlineRegisterFocusedSegmentCheckBox,
+               inline_register_focused_segment);
 
   // tab4
   SET_CHECKBOX(historySuggestCheckBox, use_history_suggest);
@@ -632,6 +636,10 @@ void ConfigDialog::ConvertToProto(config::Config* config) const {
   GET_CHECKBOX(useJapaneseLayout, use_japanese_layout);
 
   GET_CHECKBOX(useModeIndicator, use_mode_indicator);
+  GET_CHECKBOX(inlineRegisterCancelAtOnceCheckBox,
+               inline_register_cancel_at_once);
+  GET_CHECKBOX(inlineRegisterFocusedSegmentCheckBox,
+               inline_register_focused_segment);
 
   uint32_t auto_conversion_key = 0;
   if (kutenCheckBox->isChecked()) {

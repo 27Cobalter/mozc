@@ -216,6 +216,8 @@ class EngineConverter : public EngineConverterInterface {
 
   // Moves the focus of candidates.
   void CandidateNext(const composer::Composer& composer) override;
+  bool IsFocusedCandidateLast() const override;
+  bool IsFocusedCandidateOnLastPage() const override;
   void CandidateNextPage() override;
   void CandidatePrev() override;
   void CandidatePrevPage() override;

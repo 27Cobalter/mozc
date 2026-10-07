@@ -35,6 +35,7 @@
 #include <cstddef>
 #include <deque>
 #include <memory>
+#include <optional>
 #include <utility>
 
 #include "absl/strings/string_view.h"
@@ -147,6 +148,16 @@ class Session {
   // Starts conversion not using user history.  This is used for debugging.
   bool ConvertWithoutHistory(mozc::commands::Command* command);
   bool ConvertNext(mozc::commands::Command* command);
+  // Starts the inline word registration: a nested input whose committed text
+  // is stored in the user dictionary as the word for the current reading.
+  // Returns false (without touching |command|) if it cannot be started.
+  bool StartWordRegistration(mozc::commands::Command* command);
+  // Returns the {reading, word} added to the user dictionary file once, so that
+  // the owner can reload the dictionary and learn the word.
+  std::optional<std::pair<std::string, std::string>> ConsumeRegisteredWord();
+  // Returns true once after a word was deleted from the user dictionary file,
+  // so that the owner can reload the dictionary.
+  bool ConsumeUserDictionaryChanged();
   bool ConvertPrev(mozc::commands::Command* command);
   // Shows the next page of candidates.
   bool ConvertNextPage(mozc::commands::Command* command);
@@ -277,6 +288,22 @@ class Session {
 
   std::unique_ptr<ImeContext> context_;
 
+  // Inline word registration. While |registration_context_| is non-null,
+  // |context_| is the nested input for the word, and |registration_context_|
+  // keeps the conversion that started it.
+  std::unique_ptr<ImeContext> registration_context_;
+  std::string registration_key_;
+  // The text committed in the nested input: before and after the cursor.
+  std::string registration_value_;
+  std::string registration_after_;
+  // Texts of the segments around the focused one, which are committed with the
+  // registered word if inline_register_focused_segment is on.
+  std::string registration_head_;
+  std::string registration_tail_;
+  std::optional<std::pair<std::string, std::string>> registered_word_;
+  // True if the user dictionary file was changed (a word was deleted).
+  bool user_dictionary_changed_ = false;
+
   // Undo stack. *begin is the oldest, and *back is the newest.
   std::deque<std::unique_ptr<ImeContext>> undo_contexts_;
 
@@ -360,6 +387,21 @@ class Session {
   void OutputComposition(mozc::commands::Command* command) const;
   void OutputKey(mozc::commands::Command* command) const;
 
+  bool SendCommandInternal(mozc::commands::Command* command);
+  bool SendKeyInternal(mozc::commands::Command* command);
+  bool TestSendKeyInternal(mozc::commands::Command* command);
+  bool SendKeyInWordRegistration(mozc::commands::Command* command);
+  // Handles the key as an edit of the committed text if the nested input is
+  // empty. Returns false if the key is not for the text.
+  bool EditWordRegistrationText(mozc::commands::Command* command);
+  bool CancelWordRegistration(mozc::commands::Command* command);
+  // Hands the reading, the word and the dictionary over to the word register
+  // dialog and gives up the inline registration.
+  bool OpenWordRegisterDialog(mozc::commands::Command* command);
+  void ResetWordRegistration();
+  void PostProcessWordRegistration(mozc::commands::Command* command);
+  void FinishWordRegistration(mozc::commands::Command* command);
+  void DecorateWordRegistrationOutput(mozc::commands::Command* command) const;
   bool SendKeyDirectInputState(mozc::commands::Command* command);
   bool SendKeyPrecompositionState(mozc::commands::Command* command);
   bool SendKeyCompositionState(mozc::commands::Command* command);

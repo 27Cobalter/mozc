@@ -671,6 +671,8 @@ void KeyMapManager::InitCommandData() {
   RegisterConversionCommand("SegmentWidthShrink",
                             ConversionState::SEGMENT_WIDTH_SHRINK);
   RegisterConversionCommand("ConvertNext", ConversionState::CONVERT_NEXT);
+  RegisterConversionCommand("StartWordRegistration",
+                            ConversionState::START_WORD_REGISTRATION);
   RegisterConversionCommand("ConvertPrev", ConversionState::CONVERT_PREV);
   RegisterConversionCommand("ConvertNextPage",
                             ConversionState::CONVERT_NEXT_PAGE);

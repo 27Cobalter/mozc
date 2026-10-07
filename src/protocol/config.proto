@@ -362,6 +362,21 @@ message Config {
 
   //////////////////////////////////////////////////////////////
   //
+  // Experimental: inline word registration (9000-9019)
+  //
+  // These options are on trial and may be changed or removed.
+  //
+  // 9000 was the option to separate Enter (commit / finish). It is the
+  // normal behavior now.
+  reserved 9000;
+  // Esc gives up the registration at once.
+  optional bool inline_register_cancel_at_once = 9001 [default = false];
+  // Registers the reading of the focused segment instead of the whole
+  // composition.
+  optional bool inline_register_focused_segment = 9002 [default = false];
+
+  //////////////////////////////////////////////////////////////
+  //
   // Cloud (300-319)
   //
   // Configuration for cloud sync feature. This field is obsolete.

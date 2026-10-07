@@ -1124,6 +1124,16 @@ void EngineConverter::CandidateNext(const composer::Composer& composer) {
   SegmentFocus();
 }
 
+bool EngineConverter::IsFocusedCandidateLast() const {
+  return CheckState(CONVERSION | PREDICTION) && candidate_list_.size() > 0 &&
+         candidate_list_.IsFocusedLast();
+}
+
+bool EngineConverter::IsFocusedCandidateOnLastPage() const {
+  return CheckState(CONVERSION | PREDICTION) && candidate_list_.size() > 0 &&
+         candidate_list_.IsFocusedOnLastPage();
+}
+
 void EngineConverter::CandidateNextPage() {
   DCHECK(CheckState(PREDICTION | CONVERSION));
   ResetResult();

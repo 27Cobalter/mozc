@@ -414,6 +414,22 @@ void SessionHandler::MaybeUpdateConfig(commands::Command* command) {
   Reload(command);
 }
 
+// Makes the engine know the word registered by the session.
+static void ApplyRegisteredWord(session::Session* session,
+                                EngineInterface* engine) {
+  const auto word = session->ConsumeRegisteredWord();
+  const bool changed = session->ConsumeUserDictionaryChanged();
+  if (word.has_value() || changed) {
+    // Keep the history learned so far (Reload reads it from the file), and wait
+    // for the dictionary so that the next conversion sees the change.
+    engine->Sync();
+    engine->ReloadAndWait();
+  }
+  if (word.has_value()) {
+    engine->AddUserHistory(word->first, word->second);
+  }
+}
+
 bool SessionHandler::SendKey(commands::Command* command) {
   const SessionID id = command->input().id();
   std::unique_ptr<session::Session>* session = session_map_->MutableLookup(id);
@@ -422,6 +438,7 @@ bool SessionHandler::SendKey(commands::Command* command) {
     return false;
   }
   (*session)->SendKey(command);
+  ApplyRegisteredWord(session->get(), engine_.get());
   MaybeUpdateConfig(command);
   return true;
 }
@@ -445,6 +462,7 @@ bool SessionHandler::SendCommand(commands::Command* command) {
     return false;
   }
   (*session)->SendCommand(command);
+  ApplyRegisteredWord(session->get(), engine_.get());
   MaybeUpdateConfig(command);
   return true;
 }

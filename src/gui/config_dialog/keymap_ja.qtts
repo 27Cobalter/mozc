@@ -64,6 +64,10 @@
         <translation>次候補を選択</translation>
     </message>
     <message>
+        <source>StartWordRegistration</source>
+        <translation>単語登録を開始</translation>
+    </message>
+    <message>
         <source>ConvertNextPage</source>
         <translation>次候補ページを選択</translation>
     </message>
