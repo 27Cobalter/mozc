@@ -98,6 +98,15 @@ python build_tools/build_qt.py --release --confirm_license
 If you would like to manually confirm the Qt license, omit the
 `--confirm_license` option.
 
+> [!NOTE]
+>
+> `build_qt.py` ignores the environment variables and `PATH` entries that point
+> to external C++ library managers such as vcpkg (`CMAKE_TOOLCHAIN_FILE`,
+> `CMAKE_PREFIX_PATH`, `PKG_CONFIG_PATH`, `VCPKG_ROOT`, etc.). Otherwise Qt is
+> linked against their DLLs (zlib, pcre2, zstd, ...) and `bazelisk build` fails
+> with errors like `uic.exe: error while loading shared libraries`. If you have
+> already built Qt with such variables set, run `build_qt.py` again.
+
 ### Build Mozc
 
 Assuming `bazelisk` is in your `%PATH%`, run the following command to build Mozc

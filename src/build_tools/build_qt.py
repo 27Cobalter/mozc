@@ -647,6 +647,36 @@ def build_on_mac(args: argparse.Namespace) -> None:
     shutil.rmtree(qt_host_dir)
 
 
+_EXTERNAL_LIBRARY_ENV_VARS = frozenset([
+    'CMAKE_TOOLCHAIN_FILE',
+    'CMAKE_PREFIX_PATH',
+    'PKG_CONFIG_PATH',
+    'VCPKG_ROOT',
+    'VCPKG_DEFAULT_TRIPLET',
+    'VCPKG_INSTALLED_DIR',
+])
+
+
+def get_clean_vs_env_vars(
+    arch: str, vcvarsall_path: Union[str, None]
+) -> dict[str, str]:
+  """Returns get_vs_env_vars() without the settings of external C++ libraries.
+
+  If vcpkg is set up globally (e.g. CMAKE_TOOLCHAIN_FILE), the Qt build picks up
+  its zlib, pcre2, zstd, etc. and the resulting Qt tools depend on DLLs that are
+  not found at build time of Mozc (uic.exe fails with STATUS_DLL_NOT_FOUND).
+  Qt must be built only with the libraries bundled in its source tree.
+  """
+  env = get_vs_env_vars(arch, vcvarsall_path)
+  for name in list(env):
+    if name.upper() in _EXTERNAL_LIBRARY_ENV_VARS:
+      del env[name]
+  env['PATH'] = os.pathsep.join(
+      p for p in env['PATH'].split(os.pathsep) if 'vcpkg' not in p.lower()
+  )
+  return env
+
+
 def exec_command(
     command: list[str],
     cwd: Union[str, pathlib.Path],
@@ -691,7 +721,7 @@ def build_host_on_windows(args: argparse.Namespace) -> None:
     raise FileNotFoundError('Could not find qt_src_dir=%s' % qt_src_dir)
 
   arch = platform.uname().machine.lower()
-  env = get_vs_env_vars(arch, args.vcvarsall_path)
+  env = get_clean_vs_env_vars(arch, args.vcvarsall_path)
 
   # Use locally checked out ninja.exe if exists.
   ninja_dir = get_ninja_dir(args)
@@ -771,7 +801,7 @@ def build_on_windows(args: argparse.Namespace) -> None:
   host_arch = normalize_win_arch(platform.uname().machine)
   target_arch = normalize_win_arch(args.target_arch)
   arch = host_arch if host_arch == target_arch else f'{host_arch}_{target_arch}'
-  env = get_vs_env_vars(arch, args.vcvarsall_path)
+  env = get_clean_vs_env_vars(arch, args.vcvarsall_path)
 
   # Use locally checked out ninja.exe if exists.
   ninja_dir = get_ninja_dir(args)
