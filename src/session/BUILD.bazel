@@ -97,6 +97,7 @@ mozc_cc_test(
         "//converter:converter_mock",
         "//converter:segments",
         "//data_manager/testing:mock_data_manager",
+        "//dictionary:inline_registration",
         "//dictionary:pos_matcher",
         "//dictionary:user_dictionary_storage",
         "//engine",

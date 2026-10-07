@@ -55,6 +55,7 @@
 #include "converter/converter_mock.h"
 #include "converter/segments.h"
 #include "data_manager/testing/mock_data_manager.h"
+#include "dictionary/inline_registration.h"
 #include "dictionary/pos_matcher.h"
 #include "dictionary/user_dictionary_storage.h"
 #include "engine/engine.h"
@@ -95,6 +96,7 @@ namespace {
 using ::mozc::commands::Request;
 using ::testing::_;
 using ::testing::DoAll;
+using ::testing::Invoke;
 using ::testing::Mock;
 using ::testing::Return;
 using ::testing::SetArgPointee;
@@ -10518,6 +10520,25 @@ TEST_F(SessionTest, DeleteCandidateFromHistory) {
 
     commands::Command command;
     session.DeleteCandidateFromHistory(&command);
+    EXPECT_FALSE(session.ConsumeUserDictionaryChanged());
+
+    Mock::VerifyAndClearExpectations(converter.get());
+  }
+  {
+    // Deleting an inline-registered word asks to reload the dictionary.
+    Session session(engine);
+    InitSessionToConversionWithAiueo(&session, converter.get());
+    ASSERT_TRUE(dictionary::AddInlineRegisteredWord("あ", "亜"));
+
+    EXPECT_CALL(*converter, DeleteCandidateFromHistory(_, 0, 0))
+        .WillOnce(Invoke([](const Segments&, size_t, int) {
+          return dictionary::RemoveInlineRegisteredWord("あ", "亜");
+        }));
+
+    commands::Command command;
+    session.DeleteCandidateFromHistory(&command);
+    EXPECT_TRUE(session.ConsumeUserDictionaryChanged());
+    EXPECT_FALSE(session.ConsumeUserDictionaryChanged());
 
     Mock::VerifyAndClearExpectations(converter.get());
   }

@@ -2445,11 +2445,13 @@ bool Session::DeleteCandidateFromHistory(commands::Command* command) {
   if (command->input().has_command() && command->input().command().has_id()) {
     id = command->input().command().id();
   }
+  const size_t inline_words = dictionary::LoadInlineRegisteredWords().size();
   if (!context_->mutable_converter()->DeleteCandidateFromHistory(id)) {
     return DoNothing(command);
   }
-  // A word of the inline registration dictionary may have been deleted.
-  user_dictionary_changed_ = true;
+  // The dictionary has to be reloaded only if an inline word was deleted.
+  user_dictionary_changed_ =
+      dictionary::LoadInlineRegisteredWords().size() != inline_words;
   return ConvertCancel(command);
 }
 

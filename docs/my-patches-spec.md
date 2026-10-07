@@ -196,6 +196,11 @@
   Ctrl+Del が履歴削除と同じキーで届くことを保つ。
 - `Reload()` は学習履歴も読み直すので、`ApplyRegisteredWord` は先に `Sync()` している。
   外さない。
+- 辞書の更新は**ロックしてから読み込む** (`inline_registration.cc` の `LockInlineDictionary`)。
+  読み込めないファイルが存在するときは保存せず中止する (他の辞書を消さないため)。
+- 削除後の再読み込みは、**インライン登録語が実際に消えたときだけ**
+  (`Session::DeleteCandidateFromHistory` が削除の前後で辞書の語数を比べる)。
+  履歴の候補の削除では待たない。
 
 ---
 

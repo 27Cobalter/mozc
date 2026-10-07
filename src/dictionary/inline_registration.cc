@@ -49,15 +49,18 @@ namespace {
 user_dictionary::UserDictionary* LockInlineDictionary(
     UserDictionaryStorage& storage, bool create, bool* locked) {
   *locked = false;
-  if (!storage.Load().ok()) {
-    LOG(WARNING) << "UserDictionaryStorage::Load() failed";
-  }
   // The lock is held by the dictionary tool or the word register dialog.
   if (!storage.Lock()) {
     LOG(WARNING) << "Cannot lock the user dictionary";
     return nullptr;
   }
   *locked = true;
+  // Load after the lock so that the edits of the others are not overwritten.
+  // Do not save over a file that exists but cannot be read.
+  if (!storage.Load().ok() && storage.Exists().ok()) {
+    LOG(ERROR) << "Cannot load the user dictionary";
+    return nullptr;
+  }
   absl::StatusOr<uint64_t> id =
       storage.GetUserDictionaryId(kInlineRegistrationDictionaryName);
   if (!id.ok() && create) {
