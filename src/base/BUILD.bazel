@@ -700,14 +700,14 @@ mozc_cc_test(
 )
 
 mozc_run_build_tool(
-    name = "mozc_version_txt",
+    name = "mozc_version_base_txt",
     srcs = {
         "--template_path": [
             "//:version.bzl",
         ],
     },
     outs = {
-        "--output": "mozc_version.txt",
+        "--output": "mozc_version_base.txt",
     },
     args = ["--use_mozc_version_env"] +
            mozc_select(
@@ -723,6 +723,17 @@ mozc_run_build_tool(
         stable = ["--channel=stable"],
     ),
     tool = "//build_tools:mozc_version",
+    visibility = ["//:__subpackages__"],
+)
+
+# Replaces REVISION with the local build number if --config local_build is used.
+genrule(
+    name = "mozc_version_txt",
+    srcs = [":mozc_version_base_txt"],
+    outs = ["mozc_version.txt"],
+    cmd = "n=$$(grep '^STABLE_LOCAL_BUILD_NUMBER ' bazel-out/stable-status.txt | cut -d' ' -f2 | tr -d '\r' || true); " +
+          "if [ -n \"$$n\" ]; then sed \"s/^REVISION=.*/REVISION=$$n/\" $< > $@; else cp $< $@; fi",
+    stamp = 1,
     visibility = ["//:__subpackages__"],
 )
 

@@ -32,6 +32,13 @@ build:stable_channel --define CHANNEL=stable
 ## Release build
 build:release_build --compilation_mode=opt
 build:release_build --copt=-DABSL_MIN_LOG_LEVEL=100
+# Embeds the build time (shown in the About dialog) via bazel stamping.
+build:release_build --stamp
+build:release_build --workspace_status_command=build_tools/workspace_status.bat
+# For development: also bumps the 4th version number on every build so that the
+# installer overwrites the installed one. Use with release_build:
+#   bazelisk build package --config release_build --config local_build
+build:local_build --workspace_status_command=build_tools/workspace_status_local.bat
 
 ## Clang-cl toolchain for Windows
 build:windows_env --extra_toolchains=@local_config_cc//:cc-toolchain-arm64_windows-clang-cl

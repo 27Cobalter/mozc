@@ -39,6 +39,15 @@ load(
 
 package(default_visibility = ["//gui:__subpackages__"])
 
+# Build time of the last stamped (--stamp) build. See build_tools/workspace_status.bat.
+genrule(
+    name = "build_stamp_h",
+    outs = ["build_stamp.h"],
+    cmd = "t=$$(grep '^STABLE_BUILD_TIME ' bazel-out/stable-status.txt | cut -d' ' -f2- | tr -d '\r' || true); " +
+          "echo \"#define MOZC_BUILD_TIME \\\"$${t:-unstamped}\\\"\" > $@",
+    stamp = 1,
+)
+
 mozc_qt_moc(
     name = "moc_about_dialog",
     srcs = ["about_dialog.h"],
@@ -75,6 +84,7 @@ mozc_cc_qt_library(
     ],
     hdrs = [
         "about_dialog.h",
+        ":build_stamp_h",
         ":uic_about_dialog",
     ],
     deps = [

@@ -39,6 +39,7 @@
 #include "base/run_level.h"
 #include "base/system_util.h"
 #include "base/version.h"
+#include "gui/about_dialog/build_stamp.h"
 #include "gui/base/util.h"
 
 namespace mozc {
@@ -95,7 +96,8 @@ AboutDialog::AboutDialog(QWidget *parent)
   window_palette.setColor(QPalette::WindowText, QColor(0, 0, 0));
   setPalette(window_palette);
   setAutoFillBackground(true);
-  std::string version_info = "(" + Version::GetMozcVersion() + ")";
+  std::string version_info =
+      "(" + Version::GetMozcVersion() + ") build " MOZC_BUILD_TIME;
   version_label->setText(QLatin1String(version_info.c_str()));
   GuiUtil::ReplaceWidgetLabels(this);
 
